@@ -126,6 +126,15 @@ npm run dev
 
 That is the whole setup — no configuration, no services, no environment file.
 
+`npm run build:win` produces two things: an installer, and a portable exe that
+keeps its session in a `NanoMark-data` folder beside itself instead of in
+`%APPDATA%`. electron-builder's portable target only means "one file, no
+installer" — it still writes to `%APPDATA%` and shares that with an installed
+copy, which is not what anyone means by portable. A stick moved to another
+machine should carry its own state and leave nothing behind, so
+`src/main/portable.ts` redirects `userData` before the single-instance lock is
+taken, and falls back to the normal location if the folder cannot be written.
+
 | Script | |
 | ------ | --- |
 | `npm run dev` | run with hot reload |
@@ -170,6 +179,7 @@ src/
     search.ts     names and contents, bounded
     watcher.ts    chokidar, with self-write suppression
     store.ts      persisted session, and the migration from an older shape
+    portable.ts   keeps a portable copy's session beside its executable
   preload/        the only bridge: contextBridge -> window.nano
   renderer/       React — sidebar, CodeMirror editor, rendered pane
     components/editor-theme.ts   the GitHub mapping

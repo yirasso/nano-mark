@@ -3,12 +3,17 @@ import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import { registerIpcHandlers, restoreWorktree } from './ipc'
 import { flushState, getState, loadState, patchState } from './store'
+import { usePortableDataDir } from './portable'
 import { stopWatching } from './watcher'
 
 const isWindows = process.platform === 'win32'
 const isMac = process.platform === 'darwin'
 
 let mainWindow: BrowserWindow | null = null
+
+// Before the lock: it is keyed on userData, so a portable copy and an installed
+// one are only allowed to run side by side once they point at different folders.
+usePortableDataDir()
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
