@@ -3,6 +3,7 @@ import type { SearchMatch, SearchResponse } from '@shared/types'
 import { FileIcon, FolderIcon } from './Icons'
 
 interface SearchResultsProps {
+  query: string
   results: SearchResponse
   ordered: SearchMatch[]
   active: number
@@ -13,6 +14,7 @@ interface SearchResultsProps {
 }
 
 export function SearchResults({
+  query,
   results,
   ordered,
   active,
@@ -22,18 +24,32 @@ export function SearchResults({
   onContext
 }: SearchResultsProps): React.JSX.Element {
   if (ordered.length === 0) {
-    return (
-      <div className="search-empty">{searching ? 'Searching' : 'No matches'}</div>
+    // "Searching" fades in on a delay, so a fast query never flashes a word the
+    // user cannot finish reading.
+    return searching ? (
+      <p className="search-empty" data-pending="true">
+        Searching…
+      </p>
+    ) : (
+      <p className="search-empty">
+        No matches for <span className="search-empty__term">{query.trim()}</span>
+      </p>
     )
   }
 
   const entryCount = results.entries.length
+  const total = ordered.length
 
   return (
-    <div className="search-results">
+    <div
+      className="search-results"
+      id="search-results"
+      role="listbox"
+      aria-label={`${total} ${total === 1 ? 'result' : 'results'} for ${query.trim()}`}
+    >
       {entryCount > 0 ? (
         <>
-          <div className="search-group">Files and folders</div>
+          <GroupHeading label="Files and folders" count={entryCount} />
           {results.entries.map((match, index) => (
             <EntryRow
               key={`${match.path}-entry`}
@@ -50,7 +66,7 @@ export function SearchResults({
 
       {results.content.length > 0 ? (
         <>
-          <div className="search-group">In files</div>
+          <GroupHeading label="In files" count={results.content.length} />
           {results.content.map((match, index) => (
             <ContentRow
               key={`${match.path}-${match.line}-${match.column}`}
@@ -66,8 +82,19 @@ export function SearchResults({
       ) : null}
 
       {results.truncated ? (
-        <div className="search-note">Showing the first matches only</div>
+        <p className="search-note">
+          More matches exist. Narrow the search to see them.
+        </p>
       ) : null}
+    </div>
+  )
+}
+
+function GroupHeading({ label, count }: { label: string; count: number }): React.JSX.Element {
+  return (
+    <div className="search-group" role="presentation">
+      <span>{label}</span>
+      <span className="search-group__count">{count}</span>
     </div>
   )
 }
@@ -104,6 +131,10 @@ function EntryRow({
     <button
       type="button"
       ref={ref}
+      id={`search-row-${index}`}
+      role="option"
+      aria-selected={active}
+      tabIndex={-1}
       className="search-row"
       data-active={active ? 'true' : undefined}
       onMouseEnter={() => onHover(index)}
@@ -111,7 +142,7 @@ function EntryRow({
       onContextMenu={(event) => onContext(event, match)}
       title={match.path}
     >
-      <span className="search-row__icon">
+      <span className="search-row__icon" aria-hidden="true">
         {match.kind === 'dir' ? <FolderIcon /> : <FileIcon />}
       </span>
       <span className="search-row__name">{match.name}</span>
@@ -137,6 +168,10 @@ function ContentRow({
     <button
       type="button"
       ref={ref}
+      id={`search-row-${index}`}
+      role="option"
+      aria-selected={active}
+      tabIndex={-1}
       className="search-row search-row--content"
       data-active={active ? 'true' : undefined}
       onMouseEnter={() => onHover(index)}

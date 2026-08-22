@@ -2,6 +2,7 @@ import path from 'node:path'
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import { registerIpcHandlers, restoreWorktree } from './ipc'
+import { installApplicationMenu } from './menu'
 import { flushState, getState, loadState, patchState } from './store'
 import { usePortableDataDir } from './portable'
 import { stopWatching } from './watcher'
@@ -35,6 +36,7 @@ async function start(): Promise<void> {
   // Applied before the window exists, so it opens in the right colours.
   nativeTheme.themeSource = state.theme
   registerIpcHandlers()
+  installApplicationMenu()
   await restoreWorktree()
 
   createWindow()
@@ -52,10 +54,13 @@ function createWindow(): void {
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
-    minWidth: 560,
-    minHeight: 420,
+    minWidth: 720,
+    minHeight: 460,
     show: false,
-    frame: false,
+    // Windows draws its own controls over the Mica titlebar and macOS keeps the
+    // traffic lights; anywhere else, dropping the frame would leave the window
+    // with no way to close it.
+    frame: !isWindows && !isMac,
     // A transparent base is what lets the Windows backdrop material show through.
     backgroundColor: '#00000000',
     ...(isWindows

@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 export interface MenuItem {
   label: string
   onSelect: () => void
+  /** Shown right-aligned, so the menu is also where shortcuts are learned. */
+  accelerator?: string
   danger?: boolean
   separatorBefore?: boolean
 }
@@ -20,6 +22,8 @@ interface ContextMenuProps {
 
 export function ContextMenu({ anchor, onClose }: ContextMenuProps): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const returnFocus = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y })
 
   // Keep the whole menu on screen, even when opened near an edge.
@@ -34,18 +38,48 @@ export function ContextMenu({ anchor, onClose }: ContextMenuProps): React.JSX.El
     })
   }, [anchor])
 
+  // A menu that can be opened from the keyboard has to be usable from it too.
+  useEffect(() => {
+    returnFocus.current = document.activeElement as HTMLElement | null
+    itemRefs.current[0]?.focus()
+    return () => returnFocus.current?.focus?.()
+  }, [anchor])
+
   useEffect(() => {
     const dismiss = (): void => onClose()
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      const items = itemRefs.current.filter(Boolean) as HTMLButtonElement[]
+      if (items.length === 0) return
+      const current = items.indexOf(document.activeElement as HTMLButtonElement)
+
+      if (event.key === 'Escape' || event.key === 'Tab') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const delta = event.key === 'ArrowDown' ? 1 : -1
+        const next = (current + delta + items.length) % items.length
+        items[next]?.focus()
+        return
+      }
+      if (event.key === 'Home') {
+        event.preventDefault()
+        items[0]?.focus()
+      }
+      if (event.key === 'End') {
+        event.preventDefault()
+        items[items.length - 1]?.focus()
+      }
     }
     window.addEventListener('mousedown', dismiss)
     window.addEventListener('resize', dismiss)
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('mousedown', dismiss)
       window.removeEventListener('resize', dismiss)
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [onClose])
 
@@ -56,13 +90,20 @@ export function ContextMenu({ anchor, onClose }: ContextMenuProps): React.JSX.El
       style={{ left: pos.x, top: pos.y }}
       onMouseDown={(event) => event.stopPropagation()}
       role="menu"
+      aria-orientation="vertical"
     >
       {anchor.items.map((item, index) => (
         <div key={item.label}>
-          {item.separatorBefore && index > 0 ? <div className="menu__sep" /> : null}
+          {item.separatorBefore && index > 0 ? (
+            <div className="menu__sep" role="separator" />
+          ) : null}
           <button
             type="button"
             role="menuitem"
+            tabIndex={index === 0 ? 0 : -1}
+            ref={(el) => {
+              itemRefs.current[index] = el
+            }}
             className="menu__item"
             data-danger={item.danger ? 'true' : undefined}
             onClick={() => {
@@ -70,7 +111,8 @@ export function ContextMenu({ anchor, onClose }: ContextMenuProps): React.JSX.El
               item.onSelect()
             }}
           >
-            {item.label}
+            <span className="menu__label">{item.label}</span>
+            {item.accelerator ? <span className="menu__accel">{item.accelerator}</span> : null}
           </button>
         </div>
       ))}

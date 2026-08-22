@@ -47,6 +47,19 @@ export function ancestorsWithin(target: string, rootPath: string): string[] {
   return chain
 }
 
+/**
+ * The folders between the worktree and an entry, outermost first, so the header
+ * can read like GitHub's breadcrumb instead of a bare filename.
+ */
+export function relativeSegments(
+  target: string,
+  rootPath: string
+): { name: string; path: string }[] {
+  return ancestorsWithin(target, rootPath)
+    .reverse()
+    .map((dir) => ({ name: baseName(dir), path: dir }))
+}
+
 /** Prefix test that respects the filesystem's case rules. */
 export function startsWithPath(target: string, prefix: string): boolean {
   return CASE_INSENSITIVE

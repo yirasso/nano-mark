@@ -66,13 +66,28 @@ export async function createEntry(parentDir: string, name: string, kind: NodeKin
   return target
 }
 
+/** Whether an entry is a folder, so the caller can word a warning correctly. */
+export async function entryKind(target: string): Promise<NodeKind> {
+  const real = await assertInsideWorktree(target)
+  const stat = await fs.stat(real)
+  return stat.isDirectory() ? 'dir' : 'file'
+}
+
 export async function renameEntry(target: string, newName: string): Promise<string> {
   assertValidFileName(newName)
   const real = await assertInsideWorktree(target)
-  const next = path.join(path.dirname(real), newName)
+  const stat = await fs.stat(real)
+  // Renaming a note to a bare stem used to drop it out of the tree while it was
+  // still open in the editor. Creating one already appends the extension; this
+  // is the same rule, applied at the other end.
+  const finalName =
+    !stat.isDirectory() && isMarkdownPath(real) && !isMarkdownPath(newName)
+      ? `${newName}.md`
+      : newName
+  const next = path.join(path.dirname(real), finalName)
   if (next === real) return real
   if (await exists(next)) {
-    throw new Error(`"${newName}" already exists`)
+    throw new Error(`"${finalName}" already exists`)
   }
   await fs.rename(real, next)
   const eol = lineEndings.get(real)

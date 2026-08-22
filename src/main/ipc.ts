@@ -6,6 +6,7 @@ import { buildTree } from './fs-tree'
 import { runSearch } from './search'
 import {
   createEntry,
+  entryKind,
   readDocument,
   renameEntry,
   revealEntry,
@@ -17,6 +18,9 @@ import { getState, patchState } from './store'
 import { stopWatching, watchWorktree } from './watcher'
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+
+/** What the platform calls the place deleted files go, so warnings match it. */
+export const BIN_NAME = process.platform === 'win32' ? 'Recycle Bin' : 'Trash'
 
 function broadcast(channel: string, payload?: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -73,8 +77,10 @@ export function registerIpcHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender)
     const options = {
       properties: ['openDirectory' as const],
-      title: 'Choose a worktree',
-      buttonLabel: 'Open worktree'
+      // "Worktree" is what the code calls it. The person picking a folder has
+      // never read the code, and in git the word means something else.
+      title: 'Choose the folder your notes live in',
+      buttonLabel: 'Open folder'
     }
     const result = win
       ? await dialog.showOpenDialog(win, options)
@@ -114,7 +120,33 @@ export function registerIpcHandlers(): void {
     renameEntry(target, newName)
   )
 
-  ipcMain.handle(IPC.entryTrash, (_event, target: string) => trashEntry(target))
+  // Deleting is the one thing here that reaches outside the app and cannot be
+  // undone from inside it, so it is also the one thing that asks first.
+  ipcMain.handle(IPC.entryTrash, async (event, target: string): Promise<boolean> => {
+    const kind = await entryKind(target)
+    const name = path.basename(target)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options = {
+      type: 'warning' as const,
+      buttons: [`Move to ${BIN_NAME}`, 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: `Move to ${BIN_NAME}?`,
+      message:
+        kind === 'dir'
+          ? `Move "${name}" and everything inside it to the ${BIN_NAME}?`
+          : `Move "${name}" to the ${BIN_NAME}?`,
+      detail: `You can put it back from the ${BIN_NAME}.`,
+      noLink: true
+    }
+    const { response } = win
+      ? await dialog.showMessageBox(win, options)
+      : await dialog.showMessageBox(options)
+    if (response !== 0) return false
+
+    await trashEntry(target)
+    return true
+  })
 
   ipcMain.handle(IPC.entryReveal, (_event, target: string) => revealEntry(target))
 

@@ -1,25 +1,51 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { AppCommand } from '@shared/ipc'
 import type { FileNode, NodeKind, SearchMatch, Worktree } from '@shared/types'
-import { ContextMenu, type MenuAnchor } from './components/ContextMenu'
+import { ContextMenu, type MenuAnchor, type MenuItem } from './components/ContextMenu'
 import { Editor, type Reveal } from './components/Editor'
 import { EmptyState } from './components/EmptyState'
 import { Preview } from './components/Preview'
+import { ShortcutSheet } from './components/ShortcutSheet'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
 import type { Draft } from './components/Tree'
 import { useDocument } from './hooks/useDocument'
-import { useHotkeys } from './hooks/useHotkeys'
+import { useHotkeys, type Hotkey } from './hooks/useHotkeys'
 import { useSearch } from './hooks/useSearch'
 import { useTheme } from './hooks/useTheme'
 import { useWorktree } from './hooks/useWorktree'
 import { messageOf } from './lib/errors'
-import { ancestorsWithin, dirName, displayName, samePath, startsWithPath } from './lib/paths'
+import {
+  ancestorsWithin,
+  baseName,
+  dirName,
+  relativeSegments,
+  samePath,
+  startsWithPath
+} from './lib/paths'
+import { BIN, MOD } from './lib/platform'
+import { findNode, flattenVisible } from './lib/tree'
 
 type Mode = 'edit' | 'preview'
 
+interface Notice {
+  /** Distinct per notice, so the same message twice restarts the timer. */
+  id: number
+  tone: 'info' | 'error'
+  text: string
+}
+
+const NOTICE_DWELL = { info: 4000, error: 9000 }
+
 export function App(): React.JSX.Element {
-  const [error, setError] = useState<string | null>(null)
-  const onError = useCallback((message: string) => setError(message), [])
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const noticeSeq = useRef(0)
+
+  const notify = useCallback((text: string, tone: 'info' | 'error' = 'info') => {
+    noticeSeq.current += 1
+    setNotice({ id: noticeSeq.current, tone, text })
+  }, [])
+  const onError = useCallback((message: string) => notify(message, 'error'), [notify])
 
   const { worktree, tree, ready, changeWorktree, refreshTree } = useWorktree(onError)
 
@@ -32,12 +58,33 @@ export function App(): React.JSX.Element {
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const [contextPath, setContextPath] = useState<string | null>(null)
   const [reveal, setReveal] = useState<Reveal | null>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // Where the keyboard is in the tree, which is not always the open file.
+  const [cursor, setCursor] = useState<{ path: string; token: number } | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const search = useSearch(onError)
   const theme = useTheme(onError)
 
-  const doc = useDocument(selectedPath, onError)
+  const onExternalReload = useCallback(
+    () => notify('Reloaded — this file changed on disk'),
+    [notify]
+  )
+  const doc = useDocument(selectedPath, onError, onExternalReload)
+  const { discard: discardDoc, keepMine, reload: reloadDoc, saveNow } = doc
   const restored = useRef(false)
+
+  const cursorPath = cursor?.path ?? null
+
+  const moveCursor = useCallback((path: string) => {
+    setCursor((prev) => ({ path, token: (prev?.token ?? 0) + 1 }))
+  }, [])
+
+  // Following a click or a search result must not yank focus back to the tree.
+  const trackCursor = useCallback((path: string) => {
+    setCursor((prev) =>
+      prev && samePath(prev.path, path) ? prev : { path, token: prev?.token ?? 0 }
+    )
+  }, [])
 
   // Restore the previous session once the worktree is known, so the remembered
   // file is still guaranteed to live inside it.
@@ -48,9 +95,12 @@ export function App(): React.JSX.Element {
       const ui = await window.nano.ui.read()
       setExpanded(new Set(ui.expanded))
       setSidebarVisible(ui.sidebarVisible)
-      if (ui.lastFile) setSelectedPath(ui.lastFile)
+      if (ui.lastFile) {
+        setSelectedPath(ui.lastFile)
+        trackCursor(ui.lastFile)
+      }
     })()
-  }, [ready])
+  }, [ready, trackCursor])
 
   useEffect(() => {
     if (!restored.current) return
@@ -69,10 +119,18 @@ export function App(): React.JSX.Element {
   }, [hasQuery, searchRefresh])
 
   useEffect(() => {
-    if (!error) return
-    const timer = setTimeout(() => setError(null), 4000)
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), NOTICE_DWELL[notice.tone])
     return () => clearTimeout(timer)
-  }, [error])
+  }, [notice])
+
+  // An inline name field belongs to the sidebar. If the sidebar goes away the
+  // field goes with it, rather than keeping the caret somewhere invisible.
+  useEffect(() => {
+    if (sidebarVisible) return
+    setDraft(null)
+    setRenamingPath(null)
+  }, [sidebarVisible])
 
   const closeMenu = useCallback(() => {
     setMenu(null)
@@ -106,10 +164,12 @@ export function App(): React.JSX.Element {
       setRenamingPath(null)
       setDraft(null)
       setReveal(null)
+      setCursor(null)
       setMode('edit')
       clearSearch()
+      notify(`Opened ${next.name}`)
     })()
-  }, [changeWorktree, clearSearch, worktree])
+  }, [changeWorktree, clearSearch, notify, worktree])
 
   /* ---------- tree interaction ---------- */
 
@@ -122,58 +182,12 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
-  const selectFile = useCallback((node: FileNode) => setSelectedPath(node.path), [])
-
-  const startDraft = useCallback((parentPath: string, kind: NodeKind) => {
-    setExpanded((prev) => new Set(prev).add(parentPath))
-    setDraft({ parentPath, kind })
-  }, [])
-
-  const submitDraft = useCallback(
-    (name: string) => {
-      const pending = draft
-      setDraft(null)
-      if (!pending) return
-      void guard(async () => {
-        const created = await window.nano.entry.create(pending.parentPath, name, pending.kind)
-        await refreshTree()
-        if (pending.kind === 'file') setSelectedPath(created)
-        else setExpanded((prev) => new Set(prev).add(created))
-      })
+  const selectFile = useCallback(
+    (node: FileNode) => {
+      setSelectedPath(node.path)
+      trackCursor(node.path)
     },
-    [draft, guard, refreshTree]
-  )
-
-  const submitRename = useCallback(
-    (path: string, name: string) => {
-      setRenamingPath(null)
-      void guard(async () => {
-        const next = await window.nano.entry.rename(path, name)
-        await refreshTree()
-        if (samePath(selectedPath, path)) setSelectedPath(next)
-        setExpanded((prev) => {
-          if (!prev.has(path)) return prev
-          const updated = new Set(prev)
-          updated.delete(path)
-          updated.add(next)
-          return updated
-        })
-      })
-    },
-    [guard, refreshTree, selectedPath]
-  )
-
-  const trashEntry = useCallback(
-    (path: string) => {
-      void guard(async () => {
-        await window.nano.entry.trash(path)
-        await refreshTree()
-        if (selectedPath && (samePath(selectedPath, path) || startsWithPath(selectedPath, path))) {
-          setSelectedPath(null)
-        }
-      })
-    },
-    [guard, refreshTree, selectedPath]
+    [trackCursor]
   )
 
   const expandTo = useCallback(
@@ -191,17 +205,112 @@ export function App(): React.JSX.Element {
     [worktree]
   )
 
+  // Both inline name fields live in the tree, so both need the tree on screen.
+  const startDraft = useCallback(
+    (parentPath: string, kind: NodeKind) => {
+      setSidebarVisible(true)
+      clearSearch()
+      setExpanded((prev) => new Set(prev).add(parentPath))
+      setDraft({ parentPath, kind })
+    },
+    [clearSearch]
+  )
+
+  const startRename = useCallback(
+    (path: string) => {
+      setSidebarVisible(true)
+      clearSearch()
+      expandTo(path, false)
+      setRenamingPath(path)
+    },
+    [clearSearch, expandTo]
+  )
+
+  const submitDraft = useCallback(
+    (name: string) => {
+      const pending = draft
+      setDraft(null)
+      if (!pending) return
+      void guard(async () => {
+        const created = await window.nano.entry.create(pending.parentPath, name, pending.kind)
+        // Selection moves before the tree does, so the open file is never
+        // momentarily absent from it.
+        if (pending.kind === 'file') {
+          setSelectedPath(created)
+          trackCursor(created)
+        } else {
+          setExpanded((prev) => new Set(prev).add(created))
+        }
+        await refreshTree()
+      })
+    },
+    [draft, guard, refreshTree, trackCursor]
+  )
+
+  const submitRename = useCallback(
+    (path: string, name: string) => {
+      setRenamingPath(null)
+      void guard(async () => {
+        const next = await window.nano.entry.rename(path, name)
+        if (samePath(selectedPath, path)) setSelectedPath(next)
+        trackCursor(next)
+        setExpanded((prev) => {
+          if (!prev.has(path)) return prev
+          const updated = new Set(prev)
+          updated.delete(path)
+          updated.add(next)
+          return updated
+        })
+        await refreshTree()
+        notify(`Renamed to ${baseName(next)}`)
+      })
+    },
+    [guard, notify, refreshTree, selectedPath, trackCursor]
+  )
+
+  const trashEntry = useCallback(
+    (path: string) => {
+      const name = baseName(path)
+      void guard(async () => {
+        // The confirmation lives in the main process, so it is a real native
+        // dialog rather than something the page draws over itself.
+        const trashed = await window.nano.entry.trash(path)
+        if (!trashed) return
+        if (selectedPath && (samePath(selectedPath, path) || startsWithPath(selectedPath, path))) {
+          // Drop the pending write first: flushing it would put the file back.
+          discardDoc()
+          setSelectedPath(null)
+        }
+        setCursor((prev) => (prev && startsWithPath(prev.path, path) ? null : prev))
+        await refreshTree()
+        notify(`Moved “${name}” to the ${BIN}`)
+      })
+    },
+    [discardDoc, guard, notify, refreshTree, selectedPath]
+  )
+
+  // A file deleted by another program must not be resurrected by the next
+  // keystroke, so the buffer lets go of it as soon as the tree does.
+  useEffect(() => {
+    if (!ready || !worktree || !selectedPath) return
+    if (findNode(tree, selectedPath)) return
+    discardDoc()
+    setSelectedPath(null)
+  }, [discardDoc, ready, selectedPath, tree, worktree])
+
   const openMatch = useCallback(
     (match: SearchMatch) => {
       if (match.kind === 'dir') {
         // Nothing to open: unfold it in the tree and step out of the search.
         expandTo(match.path, true)
         clearSearch()
+        trackCursor(match.path)
         return
       }
 
       expandTo(match.path, false)
       setSelectedPath(match.path)
+      trackCursor(match.path)
       setMode('edit')
 
       if (match.kind === 'content') {
@@ -214,38 +323,75 @@ export function App(): React.JSX.Element {
         }))
       }
     },
-    [clearSearch, expandTo]
+    [clearSearch, expandTo, trackCursor]
+  )
+
+  const revealCrumb = useCallback(
+    (path: string) => {
+      setSidebarVisible(true)
+      clearSearch()
+      expandTo(path, true)
+      trackCursor(path)
+    },
+    [clearSearch, expandTo, trackCursor]
   )
 
   /* ---------- context menus ---------- */
+
+  const nodeMenuItems = useCallback(
+    (node: FileNode): MenuItem[] => {
+      const parentDir = node.kind === 'dir' ? node.path : dirName(node.path)
+      return [
+        {
+          label: 'New file',
+          accelerator: `${MOD} N`,
+          onSelect: () => startDraft(parentDir, 'file')
+        },
+        {
+          label: 'New folder',
+          accelerator: `${MOD} ⇧ N`,
+          onSelect: () => startDraft(parentDir, 'dir')
+        },
+        {
+          label: 'Rename',
+          accelerator: 'F2',
+          separatorBefore: true,
+          onSelect: () => startRename(node.path)
+        },
+        {
+          label: 'Show in file manager',
+          onSelect: () => void window.nano.entry.reveal(node.path)
+        },
+        {
+          label: `Move to ${BIN}`,
+          accelerator: 'Del',
+          danger: true,
+          separatorBefore: true,
+          onSelect: () => trashEntry(node.path)
+        }
+      ]
+    },
+    [startDraft, startRename, trashEntry]
+  )
 
   const openNodeMenu = useCallback(
     (event: React.MouseEvent, node: FileNode) => {
       event.preventDefault()
       event.stopPropagation()
       setContextPath(node.path)
-      const parentDir = node.kind === 'dir' ? node.path : dirName(node.path)
-      setMenu({
-        x: event.clientX,
-        y: event.clientY,
-        items: [
-          { label: 'New file', onSelect: () => startDraft(parentDir, 'file') },
-          { label: 'New folder', onSelect: () => startDraft(parentDir, 'dir') },
-          { label: 'Rename', separatorBefore: true, onSelect: () => setRenamingPath(node.path) },
-          {
-            label: 'Show in file manager',
-            onSelect: () => void window.nano.entry.reveal(node.path)
-          },
-          {
-            label: 'Move to trash',
-            danger: true,
-            separatorBefore: true,
-            onSelect: () => trashEntry(node.path)
-          }
-        ]
-      })
+      setMenu({ x: event.clientX, y: event.clientY, items: nodeMenuItems(node) })
     },
-    [startDraft, trashEntry]
+    [nodeMenuItems]
+  )
+
+  /** The keyboard route into the same menu, anchored under the focused row. */
+  const openNodeMenuAt = useCallback(
+    (node: FileNode, element: HTMLElement) => {
+      const rect = element.getBoundingClientRect()
+      setContextPath(node.path)
+      setMenu({ x: rect.left + 10, y: rect.bottom - 2, items: nodeMenuItems(node) })
+    },
+    [nodeMenuItems]
   )
 
   const openWorktreeMenu = useCallback(
@@ -256,14 +402,27 @@ export function App(): React.JSX.Element {
         x: event.clientX,
         y: event.clientY,
         items: [
-          { label: 'New file', onSelect: () => startDraft(current.path, 'file') },
-          { label: 'New folder', onSelect: () => startDraft(current.path, 'dir') },
+          {
+            label: 'New file',
+            accelerator: `${MOD} N`,
+            onSelect: () => startDraft(current.path, 'file')
+          },
+          {
+            label: 'New folder',
+            accelerator: `${MOD} ⇧ N`,
+            onSelect: () => startDraft(current.path, 'dir')
+          },
           {
             label: 'Show in file manager',
             separatorBefore: true,
             onSelect: () => void window.nano.entry.reveal(current.path)
           },
-          { label: 'Change worktree', separatorBefore: true, onSelect: switchWorktree }
+          {
+            label: 'Open another folder',
+            accelerator: `${MOD} O`,
+            separatorBefore: true,
+            onSelect: switchWorktree
+          }
         ]
       })
     },
@@ -277,7 +436,7 @@ export function App(): React.JSX.Element {
       setMenu({
         x: event.clientX,
         y: event.clientY,
-        items: [{ label: 'Follow system theme', onSelect: theme.followSystem }]
+        items: [{ label: 'Follow the system theme', onSelect: theme.followSystem }]
       })
     },
     [theme.followSystem]
@@ -294,54 +453,212 @@ export function App(): React.JSX.Element {
     [openNodeMenu]
   )
 
-  /* ---------- shortcuts ---------- */
+  /* ---------- tree keyboard model ---------- */
+
+  const visibleRows = useMemo(() => flattenVisible(tree, expanded), [tree, expanded])
+
+  const onTreeKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (visibleRows.length === 0) return
+      const found = visibleRows.findIndex((row) => samePath(row.node.path, cursorPath))
+      const index = found === -1 ? 0 : found
+      const row = visibleRows[index]
+      const go = (next: number): void => {
+        const clamped = Math.max(0, Math.min(visibleRows.length - 1, next))
+        moveCursor(visibleRows[clamped].node.path)
+      }
+
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault()
+          go(index + 1)
+          return
+        case 'ArrowUp':
+          event.preventDefault()
+          go(index - 1)
+          return
+        case 'Home':
+          event.preventDefault()
+          go(0)
+          return
+        case 'End':
+          event.preventDefault()
+          go(visibleRows.length - 1)
+          return
+        case 'ArrowRight':
+          event.preventDefault()
+          if (row.node.kind !== 'dir') return
+          if (expanded.has(row.node.path)) go(index + 1)
+          else toggleDir(row.node.path)
+          return
+        case 'ArrowLeft':
+          event.preventDefault()
+          if (row.node.kind === 'dir' && expanded.has(row.node.path)) toggleDir(row.node.path)
+          else if (row.parentPath) moveCursor(row.parentPath)
+          return
+        case 'Enter':
+        case ' ':
+          event.preventDefault()
+          if (row.node.kind === 'dir') toggleDir(row.node.path)
+          else selectFile(row.node)
+          return
+        case 'ContextMenu':
+          event.preventDefault()
+          openNodeMenuAt(row.node, event.target as HTMLElement)
+          return
+        case 'F10':
+          if (!event.shiftKey) return
+          event.preventDefault()
+          openNodeMenuAt(row.node, event.target as HTMLElement)
+      }
+    },
+    [cursorPath, expanded, moveCursor, openNodeMenuAt, selectFile, toggleDir, visibleRows]
+  )
+
+  /* ---------- commands ---------- */
 
   const newFileHere = useCallback(() => {
-    const parent = selectedPath ? dirName(selectedPath) : worktree?.path
+    const anchor = cursorPath ?? selectedPath
+    const parent = anchor
+      ? findNode(tree, anchor)?.kind === 'dir'
+        ? anchor
+        : dirName(anchor)
+      : worktree?.path
     if (parent) startDraft(parent, 'file')
-  }, [selectedPath, startDraft, worktree])
+  }, [cursorPath, selectedPath, startDraft, tree, worktree])
 
-  useHotkeys([
-    { key: 'b', mod: true, handler: () => setSidebarVisible((v) => !v) },
-    {
-      key: 'f',
-      mod: true,
-      handler: () => {
-        if (!worktree) return
-        setSidebarVisible(true)
-        searchInput.current?.focus()
-        searchInput.current?.select()
+  const newFolderHere = useCallback(() => {
+    const anchor = cursorPath ?? selectedPath
+    const parent = anchor
+      ? findNode(tree, anchor)?.kind === 'dir'
+        ? anchor
+        : dirName(anchor)
+      : worktree?.path
+    if (parent) startDraft(parent, 'dir')
+  }, [cursorPath, selectedPath, startDraft, tree, worktree])
+
+  const focusSearch = useCallback(() => {
+    if (!worktree) return
+    setSidebarVisible(true)
+    searchInput.current?.focus()
+    searchInput.current?.select()
+  }, [worktree])
+
+  const toggleMode = useCallback(() => {
+    if (selectedPath) setMode((m) => (m === 'edit' ? 'preview' : 'edit'))
+  }, [selectedPath])
+
+  // Rename and delete follow the tree cursor when it has been moved, and the
+  // open file otherwise, so neither is stranded behind a mouse click.
+  const targetPath = cursorPath ?? selectedPath
+
+  const runCommand = useCallback(
+    (command: AppCommand) => {
+      switch (command) {
+        case 'new-file':
+          newFileHere()
+          return
+        case 'new-folder':
+          newFolderHere()
+          return
+        case 'change-worktree':
+          switchWorktree()
+          return
+        case 'save':
+          void saveNow()
+          return
+        case 'rename':
+          if (targetPath) startRename(targetPath)
+          return
+        case 'trash':
+          if (targetPath) trashEntry(targetPath)
+          return
+        case 'search':
+          focusSearch()
+          return
+        case 'toggle-sidebar':
+          setSidebarVisible((v) => !v)
+          return
+        case 'toggle-mode':
+          toggleMode()
+          return
+        case 'shortcuts':
+          setShortcutsOpen(true)
       }
     },
-    {
-      key: 'e',
-      mod: true,
-      handler: () => {
-        if (selectedPath) setMode((m) => (m === 'edit' ? 'preview' : 'edit'))
-      }
-    },
-    { key: 's', mod: true, handler: () => void doc.saveNow() },
-    { key: 'o', mod: true, handler: switchWorktree },
-    { key: 'n', mod: true, handler: newFileHere },
-    {
-      key: 'F2',
-      skipInEditable: true,
-      handler: () => {
-        if (selectedPath) setRenamingPath(selectedPath)
-      }
-    },
-    {
-      key: 'Delete',
-      skipInEditable: true,
-      handler: () => {
-        if (selectedPath) trashEntry(selectedPath)
-      }
+    [
+      focusSearch,
+      newFileHere,
+      newFolderHere,
+      saveNow,
+      startRename,
+      switchWorktree,
+      targetPath,
+      toggleMode,
+      trashEntry
+    ]
+  )
+
+  useEffect(() => window.nano.onCommand(runCommand), [runCommand])
+
+  const hotkeys: Hotkey[] = shortcutsOpen
+    ? [{ key: 'F1', handler: () => setShortcutsOpen(false) }]
+    : [
+        { key: 'b', mod: true, handler: () => setSidebarVisible((v) => !v) },
+        { key: 'f', mod: true, handler: focusSearch },
+        { key: 'e', mod: true, handler: toggleMode },
+        { key: 's', mod: true, handler: () => void saveNow() },
+        { key: 'o', mod: true, handler: switchWorktree },
+        { key: 'n', mod: true, handler: newFileHere },
+        { key: 'n', mod: true, shift: true, handler: newFolderHere },
+        { key: 'F1', handler: () => setShortcutsOpen(true) },
+        {
+          key: 'F2',
+          skipInEditable: true,
+          handler: () => {
+            if (targetPath) startRename(targetPath)
+          }
+        },
+        {
+          key: 'Delete',
+          skipInEditable: true,
+          handler: () => {
+            if (targetPath) trashEntry(targetPath)
+          }
+        }
+      ]
+
+  useHotkeys(hotkeys)
+
+  /* ---------- header ---------- */
+
+  const fileName = useMemo(() => (selectedPath ? baseName(selectedPath) : ''), [selectedPath])
+
+  const crumbs = useMemo(
+    () => (selectedPath && worktree ? relativeSegments(selectedPath, worktree.path) : []),
+    [selectedPath, worktree]
+  )
+
+  const meta = useMemo(() => {
+    if (!selectedPath || doc.loadedPath === null) return ''
+    if (mode === 'preview') {
+      const words = doc.value.trim() ? doc.value.trim().split(/\s+/).length : 0
+      return `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}`
     }
-  ])
+    const lines = doc.value.split('\n').length
+    return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'}`
+  }, [doc.loadedPath, doc.value, mode, selectedPath])
 
-  const title = useMemo(() => (selectedPath ? displayName(selectedPath) : ''), [selectedPath])
-
-  const treeState = { expanded, selectedPath, renamingPath, contextPath, draft }
+  const treeState = {
+    expanded,
+    selectedPath,
+    renamingPath,
+    contextPath,
+    cursorPath,
+    cursorToken: cursor?.token ?? 0,
+    tabbablePath: cursorPath ?? visibleRows[0]?.node.path ?? null,
+    draft
+  }
 
   return (
     <div className="app" data-platform={window.nano.platform}>
@@ -350,6 +667,7 @@ export function App(): React.JSX.Element {
         worktree={worktree}
         tree={tree}
         state={treeState}
+        onNewFile={newFileHere}
         onChangeWorktree={switchWorktree}
         onWorktreeContext={openWorktreeMenu}
         search={{
@@ -373,6 +691,8 @@ export function App(): React.JSX.Element {
         onToggle={toggleDir}
         onSelect={selectFile}
         onContext={openNodeMenu}
+        onCursor={trackCursor}
+        onTreeKeyDown={onTreeKeyDown}
         onRenameSubmit={submitRename}
         onRenameCancel={() => setRenamingPath(null)}
         onDraftSubmit={submitDraft}
@@ -381,23 +701,37 @@ export function App(): React.JSX.Element {
 
       <main className="main">
         <Topbar
-          title={title}
-          dirty={doc.dirty || doc.saving}
+          crumbs={crumbs}
+          fileName={fileName}
+          meta={meta}
+          saveState={doc.saveState}
+          failure={doc.failure}
           mode={mode}
           externalChange={doc.externalChange}
           hasDocument={selectedPath !== null}
+          sidebarVisible={sidebarVisible}
           isDark={theme.isDark}
+          onCrumb={revealCrumb}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
-          onToggleMode={() => setMode((m) => (m === 'edit' ? 'preview' : 'edit'))}
+          onSetMode={setMode}
           onToggleTheme={theme.toggle}
           onThemeContext={openThemeMenu}
-          onReload={() => void doc.reload()}
+          onRetrySave={() => void saveNow()}
+          onReload={() => void reloadDoc()}
+          onKeepMine={() => void keepMine()}
         />
 
         <div className="content">
           {selectedPath ? (
             <>
-              <div className="pane" data-inactive={mode === 'preview' ? 'true' : undefined}>
+              <div
+                className="pane"
+                id="viewpane-code"
+                role="tabpanel"
+                aria-labelledby="viewtab-code"
+                data-inactive={mode === 'preview' ? 'true' : undefined}
+                inert={mode === 'preview'}
+              >
                 <Editor
                   path={selectedPath}
                   value={doc.value}
@@ -406,18 +740,40 @@ export function App(): React.JSX.Element {
                   onChange={doc.setValue}
                 />
               </div>
-              <div className="pane" data-inactive={mode === 'edit' ? 'true' : undefined}>
+              <div
+                className="pane"
+                id="viewpane-preview"
+                role="tabpanel"
+                aria-labelledby="viewtab-preview"
+                data-inactive={mode === 'edit' ? 'true' : undefined}
+                inert={mode === 'edit'}
+              >
                 <Preview source={doc.value} active={mode === 'preview'} />
               </div>
             </>
           ) : (
-            <EmptyState hasWorktree={worktree !== null} onChangeWorktree={switchWorktree} />
+            <EmptyState
+              hasWorktree={worktree !== null}
+              onChangeWorktree={switchWorktree}
+              onNewFile={newFileHere}
+              onShowShortcuts={() => setShortcutsOpen(true)}
+            />
           )}
         </div>
       </main>
 
       {menu ? <ContextMenu anchor={menu} onClose={closeMenu} /> : null}
-      {error ? <div className="toast">{error}</div> : null}
+      {shortcutsOpen ? <ShortcutSheet onClose={() => setShortcutsOpen(false)} /> : null}
+      {notice ? (
+        <div
+          key={notice.id}
+          className="toast"
+          data-tone={notice.tone}
+          role={notice.tone === 'error' ? 'alert' : 'status'}
+        >
+          {notice.text}
+        </div>
+      ) : null}
     </div>
   )
 }

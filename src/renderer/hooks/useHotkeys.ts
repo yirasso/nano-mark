@@ -10,6 +10,13 @@ export interface Hotkey {
   skipInEditable?: boolean
 }
 
+/**
+ * One modifier per platform, not "either one". Accepting Control on macOS would
+ * make every Ctrl- chord the editor already owns — Ctrl-E for end of line, Ctrl-A
+ * for start — fire an app command at the same time.
+ */
+const IS_MAC = window.nano.platform === 'darwin'
+
 const isEditable = (target: EventTarget | null): boolean => {
   const el = target as HTMLElement | null
   if (!el) return false
@@ -27,7 +34,7 @@ export function useHotkeys(hotkeys: Hotkey[]): void {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      const mod = event.ctrlKey || event.metaKey
+      const mod = IS_MAC ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
       for (const hotkey of ref.current) {
         if (event.key.toLowerCase() !== hotkey.key.toLowerCase()) continue
         if (Boolean(hotkey.mod) !== mod) continue

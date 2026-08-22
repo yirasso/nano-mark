@@ -7,23 +7,32 @@ interface SearchBarProps {
   onClear: () => void
   onMove: (delta: number) => void
   onSubmit: () => void
+  /** The result row the arrow keys are on, announced without moving focus. */
+  activeId?: string
 }
 
 export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBar(
-  { value, onChange, onClear, onMove, onSubmit },
+  { value, onChange, onClear, onMove, onSubmit, activeId },
   ref
 ) {
   return (
     <div className="search no-drag" data-filled={value ? 'true' : undefined}>
-      <span className="search__icon">
+      <span className="search__icon" aria-hidden="true">
         <SearchIcon />
       </span>
 
       <input
         ref={ref}
         className="search__input"
+        type="text"
+        role="combobox"
+        aria-label="Search this folder"
+        aria-expanded={Boolean(activeId)}
+        aria-controls="search-results"
+        aria-activedescendant={activeId}
+        aria-autocomplete="list"
         value={value}
-        placeholder="Search"
+        placeholder="Search this folder"
         spellCheck={false}
         autoComplete="off"
         onChange={(event) => onChange(event.target.value)}
@@ -50,7 +59,13 @@ export const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function S
       />
 
       {value ? (
-        <button type="button" className="search__clear" onClick={onClear} title="Clear (Esc)">
+        <button
+          type="button"
+          className="search__clear"
+          onClick={onClear}
+          aria-label="Clear the search"
+          title="Clear (Esc)"
+        >
           <CloseIcon />
         </button>
       ) : null}

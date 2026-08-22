@@ -1,43 +1,49 @@
+/*
+ * The chrome's palette. The file view is GitHub's, so the window around it is
+ * built from the same Primer values rather than from a second palette that
+ * happens to sit next to them: the accent, the neutrals and the error colour all
+ * resolve to tokens defined in github.css.
+ *
+ * The neutral ramp is Primer's, chosen for contrast rather than for looks:
+ * `--text-muted` carries the filename and clears 4.5:1, `--text-faint` carries
+ * icons and secondary labels and clears 3:1 in both schemes.
+ */
 :root {
   color-scheme: light;
 
   /* The window itself stays transparent so the OS backdrop material shows through. */
   --surface-sidebar: rgba(255, 255, 255, 0.34);
-  --surface-editor: rgba(255, 255, 255, 0.66);
-  --surface-raised: rgba(255, 255, 255, 0.86);
+  --surface-raised: rgba(255, 255, 255, 0.9);
   --surface-hover: rgba(20, 20, 30, 0.045);
   --surface-active: rgba(20, 20, 30, 0.075);
+  --surface-sunken: rgba(20, 20, 30, 0.05);
 
-  --text: #1f2027;
-  --text-soft: #55575f;
-  --text-muted: #8a8c95;
-  --text-faint: #b6b8c0;
+  --text: #1f2328;
+  --text-soft: #424a53;
+  --text-muted: #59636e;
+  --text-faint: #6e7781;
 
-  --accent: #4a6cf7;
-  --accent-soft: rgba(74, 108, 247, 0.12);
-  --accent-text: #3557e0;
-  --danger: #d94b48;
+  --accent: var(--gh-fg-accent);
+  --accent-soft: var(--gh-selection);
+  --accent-text: var(--gh-fg-accent);
+  /* Foreground for text sitting ON the accent. Dark mode lightens the accent
+     itself, so white stops clearing 4.5:1 and the canvas colour takes over. */
+  --accent-on: #ffffff;
+  --danger: var(--gh-invalid);
+  --danger-soft: #ffebe9;
 
-  /* Code tokens, shared by the editor and the preview so both read the same. */
-  --code-keyword: #a24ec4;
-  --code-string: #3c8b52;
-  --code-number: #b3652a;
-  --code-type: #2f8a9b;
-
-  --hairline: rgba(20, 20, 30, 0.08);
+  --hairline: rgba(20, 20, 30, 0.09);
+  --shadow-soft: 0 1px 2px rgba(15, 16, 24, 0.1), 0 2px 6px rgba(15, 16, 24, 0.07);
   --shadow-raised: 0 10px 34px rgba(15, 16, 24, 0.14), 0 1px 2px rgba(15, 16, 24, 0.07);
+  --scrim: rgba(20, 22, 30, 0.24);
 
   --radius-sm: 6px;
-  --radius-md: 9px;
   --radius-lg: 14px;
 
   --sidebar-width: 244px;
   --titlebar-height: 40px;
-  --measure: 720px;
 
   --font-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
-    system-ui, sans-serif;
-  --font-editor: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
     system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
 
@@ -52,29 +58,45 @@
   :root {
     color-scheme: dark;
 
-    --surface-sidebar: rgba(24, 25, 32, 0.30);
-    --surface-editor: rgba(24, 25, 32, 0.58);
-    --surface-raised: rgba(38, 39, 48, 0.94);
+    --surface-sidebar: rgba(24, 25, 32, 0.3);
+    --surface-raised: rgba(38, 39, 48, 0.95);
     --surface-hover: rgba(255, 255, 255, 0.055);
     --surface-active: rgba(255, 255, 255, 0.09);
+    --surface-sunken: rgba(255, 255, 255, 0.05);
 
-    --text: #eceef4;
-    --text-soft: #b9bcc6;
-    --text-muted: #83868f;
-    --text-faint: #5d606a;
+    --text: #f0f6fc;
+    --text-soft: #c9d1d9;
+    --text-muted: #9198a1;
+    --text-faint: #7d8590;
 
-    --accent: #7b93ff;
-    --accent-soft: rgba(123, 147, 255, 0.16);
-    --accent-text: #9db0ff;
-    --danger: #ef6b68;
+    --accent-on: #0d1117;
+    --danger-soft: #3d1d1d;
 
-    --code-keyword: #cf95e6;
-    --code-string: #86cfa0;
-    --code-number: #e0a672;
-    --code-type: #7cc7d6;
-
-    --hairline: rgba(255, 255, 255, 0.09);
+    --hairline: rgba(255, 255, 255, 0.1);
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
     --shadow-raised: 0 12px 38px rgba(0, 0, 0, 0.44), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --scrim: rgba(2, 4, 10, 0.5);
+  }
+}
+
+/* Windows High Contrast and the macOS "increase contrast" setting both land
+   here. Every secondary label steps up one rung and the hairlines get real. */
+@media (prefers-contrast: more) {
+  :root {
+    --text-soft: var(--text);
+    --text-muted: var(--text-soft);
+    --text-faint: var(--text-muted);
+    --hairline: rgba(20, 20, 30, 0.4);
+    --surface-hover: rgba(20, 20, 30, 0.1);
+    --surface-active: rgba(20, 20, 30, 0.16);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --hairline: rgba(255, 255, 255, 0.45);
+      --surface-hover: rgba(255, 255, 255, 0.12);
+      --surface-active: rgba(255, 255, 255, 0.2);
+    }
   }
 }
 

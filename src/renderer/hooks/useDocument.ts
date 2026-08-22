@@ -3,58 +3,105 @@ import { samePath } from '../lib/paths'
 import { messageOf } from '../lib/errors'
 
 const AUTOSAVE_DELAY = 500
+const RETRY_BASE = 1000
+const RETRY_CEILING = 15000
+
+/** What the topbar says out loud. `failed` is the only one that sticks. */
+export type SaveState = 'clean' | 'dirty' | 'saving' | 'failed'
 
 interface DocumentApi {
   value: string
   /** The file whose content is in `value` right now, or null while loading. */
   loadedPath: string | null
-  dirty: boolean
-  saving: boolean
+  saveState: SaveState
+  /** Why the last write failed, kept until one succeeds. */
+  failure: string | null
   externalChange: boolean
   setValue: (next: string) => void
   saveNow: () => Promise<void>
   reload: () => Promise<void>
+  /** Takes the buffer as the truth and stops asking about the disk. */
+  keepMine: () => Promise<void>
+  /** Throws the pending write away, for a file that is no longer there. */
+  discard: () => void
 }
 
 /**
  * Owns the open buffer: loads it, saves it on a debounce, and reconciles edits
  * made to the same file by other programs.
+ *
+ * A write that fails is never dropped. The pending edit goes back where it came
+ * from and is retried on a widening delay, because the app's whole promise is
+ * that the user does not have to think about saving.
  */
-export function useDocument(path: string | null, onError: (message: string) => void): DocumentApi {
+export function useDocument(
+  path: string | null,
+  onError: (message: string) => void,
+  onExternalReload: () => void
+): DocumentApi {
   const [value, setValueState] = useState('')
   const [loadedPath, setLoadedPath] = useState<string | null>(null)
-  const [dirty, setDirty] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('clean')
+  const [failure, setFailure] = useState<string | null>(null)
   const [externalChange, setExternalChange] = useState(false)
 
   // Held in refs so the flush can outlive the file it belongs to.
   const pendingRef = useRef<{ path: string; content: string } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const attemptsRef = useRef(0)
   const currentPathRef = useRef<string | null>(null)
   const dirtyRef = useRef(false)
+  const flushRef = useRef<() => Promise<void>>(async () => undefined)
+  const reloadNoticeRef = useRef(onExternalReload)
 
-  const flush = useCallback(async () => {
+  reloadNoticeRef.current = onExternalReload
+
+  const clearTimers = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current)
       timerRef.current = null
     }
+    if (retryRef.current) {
+      clearTimeout(retryRef.current)
+      retryRef.current = null
+    }
+  }, [])
+
+  const flush = useCallback(async () => {
+    clearTimers()
     const pending = pendingRef.current
     if (!pending) return
     pendingRef.current = null
 
-    setSaving(true)
+    setSaveState('saving')
     try {
       await window.nano.file.write(pending.path, pending.content)
-      if (samePath(pending.path, currentPathRef.current) && !pendingRef.current) {
+      attemptsRef.current = 0
+      setFailure(null)
+      if (pendingRef.current) {
+        setSaveState('dirty')
+      } else if (samePath(pending.path, currentPathRef.current)) {
         dirtyRef.current = false
-        setDirty(false)
+        setSaveState('clean')
+      } else {
+        setSaveState('clean')
       }
     } catch (error) {
-      onError(messageOf(error))
-    } finally {
-      setSaving(false)
+      // Put the write back. Losing it here is the one failure the user cannot
+      // see coming, because nothing in the interface ever asked them to save.
+      if (!pendingRef.current) pendingRef.current = pending
+      dirtyRef.current = true
+      setFailure(messageOf(error))
+      setSaveState('failed')
+
+      attemptsRef.current += 1
+      const delay = Math.min(RETRY_BASE * 2 ** (attemptsRef.current - 1), RETRY_CEILING)
+      retryRef.current = setTimeout(() => void flushRef.current(), delay)
     }
-  }, [onError])
+  }, [clearTimers])
+
+  flushRef.current = flush
 
   const load = useCallback(
     async (target: string) => {
@@ -65,14 +112,26 @@ export function useDocument(path: string | null, onError: (message: string) => v
         setValueState(doc.content)
         setLoadedPath(target)
         dirtyRef.current = false
-        setDirty(false)
+        setSaveState('clean')
+        setFailure(null)
         setExternalChange(false)
+        return true
       } catch (error) {
         onError(messageOf(error))
+        return false
       }
     },
     [onError]
   )
+
+  const discard = useCallback(() => {
+    clearTimers()
+    pendingRef.current = null
+    attemptsRef.current = 0
+    dirtyRef.current = false
+    setSaveState('clean')
+    setFailure(null)
+  }, [clearTimers])
 
   // Switching files always saves the outgoing one first.
   useEffect(() => {
@@ -87,7 +146,7 @@ export function useDocument(path: string | null, onError: (message: string) => v
       setValueState('')
       if (!path) {
         dirtyRef.current = false
-        setDirty(false)
+        setSaveState('clean')
         setExternalChange(false)
         return
       }
@@ -104,32 +163,46 @@ export function useDocument(path: string | null, onError: (message: string) => v
       if (!target) return
       setValueState(next)
       dirtyRef.current = true
-      setDirty(true)
       pendingRef.current = { path: target, content: next }
-      if (timerRef.current) clearTimeout(timerRef.current)
+      // A retry in flight is superseded by the newer content.
+      attemptsRef.current = 0
+      setSaveState((current) => (current === 'saving' ? current : 'dirty'))
+      clearTimers()
       timerRef.current = setTimeout(() => void flush(), AUTOSAVE_DELAY)
     },
-    [flush]
+    [clearTimers, flush]
   )
 
   const reload = useCallback(async () => {
     const target = currentPathRef.current
     if (!target) return
-    pendingRef.current = null
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
+    discard()
     await load(target)
-  }, [load])
+  }, [discard, load])
 
-  // A change on disk either lands silently or waits behind unsaved work.
+  const keepMine = useCallback(async () => {
+    const target = currentPathRef.current
+    if (!target) return
+    setExternalChange(false)
+    pendingRef.current = { path: target, content: value }
+    dirtyRef.current = true
+    await flush()
+  }, [flush, value])
+
+  // A change on disk either lands quietly or waits behind unsaved work.
   useEffect(
     () =>
       window.nano.onFileChanged((event) => {
         if (!samePath(event.path, currentPathRef.current)) return
-        if (dirtyRef.current || pendingRef.current) setExternalChange(true)
-        else void load(event.path)
+        if (dirtyRef.current || pendingRef.current) {
+          setExternalChange(true)
+          return
+        }
+        void load(event.path).then((ok) => {
+          // Text changing under the reader is worth a word, even when nothing
+          // was at risk.
+          if (ok) reloadNoticeRef.current()
+        })
       }),
     [load]
   )
@@ -141,8 +214,24 @@ export function useDocument(path: string | null, onError: (message: string) => v
     return () => window.removeEventListener('blur', onBlur)
   }, [flush])
 
-  // The main process holds the window open until this resolves.
-  useEffect(() => window.nano.onFlushRequest(() => void flush().finally(window.nano.flushDone)), [flush])
+  useEffect(() => clearTimers, [clearTimers])
 
-  return { value, loadedPath, dirty, saving, externalChange, setValue, saveNow: flush, reload }
+  // The main process holds the window open until this resolves.
+  useEffect(
+    () => window.nano.onFlushRequest(() => void flush().finally(window.nano.flushDone)),
+    [flush]
+  )
+
+  return {
+    value,
+    loadedPath,
+    saveState,
+    failure,
+    externalChange,
+    setValue,
+    saveNow: flush,
+    reload,
+    keepMine,
+    discard
+  }
 }

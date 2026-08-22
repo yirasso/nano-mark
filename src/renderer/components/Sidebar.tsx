@@ -2,7 +2,8 @@ import type { FileNode, SearchMatch, SearchResponse, Worktree } from '@shared/ty
 import { Tree, type TreeCallbacks, type TreeState } from './Tree'
 import { SearchBar } from './SearchBar'
 import { SearchResults } from './SearchResults'
-import { SwapIcon } from './Icons'
+import { MOD } from '../lib/platform'
+import { PlusIcon, SwapIcon } from './Icons'
 
 export interface SidebarSearch {
   inputRef: React.RefObject<HTMLInputElement | null>
@@ -26,6 +27,7 @@ interface SidebarProps extends TreeCallbacks {
   tree: FileNode[]
   state: TreeState
   search: SidebarSearch
+  onNewFile: () => void
   onChangeWorktree: () => void
   onWorktreeContext: (event: React.MouseEvent, worktree: Worktree) => void
 }
@@ -36,24 +38,40 @@ export function Sidebar({
   tree,
   state,
   search,
+  onNewFile,
   onChangeWorktree,
   onWorktreeContext,
   ...callbacks
 }: SidebarProps): React.JSX.Element {
   const searching = search.query.trim().length > 0
 
+  // Hiding uses `visibility`, not opacity: it takes the panel out of the
+  // accessibility tree and blurs anything inside it, so a rename field can never
+  // keep the caret in a panel nobody can see.
   return (
     <aside className="sidebar" data-hidden={hidden ? 'true' : undefined}>
       <div className="sidebar__top drag" />
 
       {worktree ? (
         <>
-          <div
-            className="worktree"
-            title={worktree.path}
-            onContextMenu={(event) => onWorktreeContext(event, worktree)}
-          >
-            {worktree.name}
+          <div className="worktree">
+            <button
+              type="button"
+              className="worktree__name"
+              title={worktree.path}
+              onContextMenu={(event) => onWorktreeContext(event, worktree)}
+            >
+              {worktree.name}
+            </button>
+            <button
+              type="button"
+              className="worktree__add"
+              onClick={onNewFile}
+              aria-label="New file"
+              title={`New file (${MOD}+N)`}
+            >
+              <PlusIcon size={13} />
+            </button>
           </div>
 
           <div className="sidebar__search">
@@ -64,12 +82,16 @@ export function Sidebar({
               onClear={search.clear}
               onMove={search.moveActive}
               onSubmit={search.submit}
+              activeId={
+                searching && search.ordered.length > 0 ? `search-row-${search.active}` : undefined
+              }
             />
           </div>
 
-          <div className="sidebar__scroll">
+          <nav className="sidebar__scroll" aria-label="Files">
             {searching ? (
               <SearchResults
+                query={search.query}
                 results={search.results}
                 ordered={search.ordered}
                 active={search.active}
@@ -79,15 +101,9 @@ export function Sidebar({
                 onContext={search.onContext}
               />
             ) : (
-              <Tree
-                {...callbacks}
-                nodes={tree}
-                parentPath={worktree.path}
-                depth={0}
-                state={state}
-              />
+              <Tree {...callbacks} nodes={tree} parentPath={worktree.path} depth={0} state={state} />
             )}
-          </div>
+          </nav>
         </>
       ) : (
         <div className="sidebar__scroll" />
@@ -98,10 +114,10 @@ export function Sidebar({
           type="button"
           className="sidebar__add"
           onClick={onChangeWorktree}
-          title="Change worktree (Ctrl+O)"
+          title={`Open a different folder (${MOD}+O)`}
         >
           <SwapIcon size={13} />
-          <span>Change worktree</span>
+          <span>Open another folder</span>
         </button>
       </div>
     </aside>

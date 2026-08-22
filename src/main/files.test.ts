@@ -126,6 +126,24 @@ describe('renameEntry', () => {
     const created = await createEntry(root, 'movable', 'file')
     await expect(renameEntry(created, 'sub/moved.md')).rejects.toThrow(/not a valid name/)
   })
+
+  it('keeps a note in the tree when it is renamed to a bare stem', async () => {
+    const created = await createEntry(root, 'notes', 'file')
+    const renamed = await renameEntry(created, 'journal')
+    expect(path.basename(renamed)).toBe('journal.md')
+  })
+
+  it('leaves folder names alone', async () => {
+    const created = await createEntry(root, 'archive', 'dir')
+    const renamed = await renameEntry(created, 'attic')
+    expect(path.basename(renamed)).toBe('attic')
+  })
+
+  it('reports the collision under the name it would actually have used', async () => {
+    await createEntry(root, 'taken', 'file')
+    const other = await createEntry(root, 'other', 'file')
+    await expect(renameEntry(other, 'taken')).rejects.toThrow(/"taken\.md" already exists/)
+  })
 })
 
 describe('trashEntry', () => {

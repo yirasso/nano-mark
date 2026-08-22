@@ -17,9 +17,29 @@ export const IPC = {
   uiStatePatch: 'ui:patch',
   appFlush: 'app:flush',
   appFlushDone: 'app:flush-done',
+  appCommand: 'app:command',
   treeChanged: 'tree:changed',
   fileChanged: 'file:changed'
 } as const
+
+/**
+ * Everything the application menu can ask for. The menu lives in main and the
+ * shortcuts live in the renderer, so both routes end at the same list.
+ */
+export const APP_COMMANDS = [
+  'new-file',
+  'new-folder',
+  'change-worktree',
+  'save',
+  'rename',
+  'trash',
+  'search',
+  'toggle-sidebar',
+  'toggle-mode',
+  'shortcuts'
+] as const
+
+export type AppCommand = (typeof APP_COMMANDS)[number]
 
 export interface UiState {
   expanded: string[]
