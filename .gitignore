@@ -6,4 +6,8 @@ dist/
 *.log
 .DS_Store
 
+# Design-review snapshots, written by tooling and read back by it. Local
+# working notes, not a record of the project.
+.impeccable/
+
 # build/ holds the generated icon, which is committed on purpose.
