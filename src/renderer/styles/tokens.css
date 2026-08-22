@@ -1,0 +1,86 @@
+:root {
+  color-scheme: light;
+
+  /* The window itself stays transparent so the OS backdrop material shows through. */
+  --surface-sidebar: rgba(255, 255, 255, 0.34);
+  --surface-editor: rgba(255, 255, 255, 0.66);
+  --surface-raised: rgba(255, 255, 255, 0.86);
+  --surface-hover: rgba(20, 20, 30, 0.045);
+  --surface-active: rgba(20, 20, 30, 0.075);
+
+  --text: #1f2027;
+  --text-soft: #55575f;
+  --text-muted: #8a8c95;
+  --text-faint: #b6b8c0;
+
+  --accent: #4a6cf7;
+  --accent-soft: rgba(74, 108, 247, 0.12);
+  --accent-text: #3557e0;
+  --danger: #d94b48;
+
+  /* Code tokens, shared by the editor and the preview so both read the same. */
+  --code-keyword: #a24ec4;
+  --code-string: #3c8b52;
+  --code-number: #b3652a;
+  --code-type: #2f8a9b;
+
+  --hairline: rgba(20, 20, 30, 0.08);
+  --shadow-raised: 0 10px 34px rgba(15, 16, 24, 0.14), 0 1px 2px rgba(15, 16, 24, 0.07);
+
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 14px;
+
+  --sidebar-width: 244px;
+  --titlebar-height: 40px;
+  --measure: 720px;
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    system-ui, sans-serif;
+  --font-editor: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont,
+    system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --fast: 140ms;
+  --normal: 190ms;
+}
+
+/* Windows Mica and macOS vibrancy follow the system theme, so the palette has to
+   follow it too, otherwise the text sits on the wrong backdrop. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --surface-sidebar: rgba(24, 25, 32, 0.30);
+    --surface-editor: rgba(24, 25, 32, 0.58);
+    --surface-raised: rgba(38, 39, 48, 0.94);
+    --surface-hover: rgba(255, 255, 255, 0.055);
+    --surface-active: rgba(255, 255, 255, 0.09);
+
+    --text: #eceef4;
+    --text-soft: #b9bcc6;
+    --text-muted: #83868f;
+    --text-faint: #5d606a;
+
+    --accent: #7b93ff;
+    --accent-soft: rgba(123, 147, 255, 0.16);
+    --accent-text: #9db0ff;
+    --danger: #ef6b68;
+
+    --code-keyword: #cf95e6;
+    --code-string: #86cfa0;
+    --code-number: #e0a672;
+    --code-type: #7cc7d6;
+
+    --hairline: rgba(255, 255, 255, 0.09);
+    --shadow-raised: 0 12px 38px rgba(0, 0, 0, 0.44), 0 1px 2px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fast: 0ms;
+    --normal: 0ms;
+  }
+}

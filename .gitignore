@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.vite/
+*.tsbuildinfo
+*.log
+.DS_Store
+
+# build/ holds the generated icon, which is committed on purpose.

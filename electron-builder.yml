@@ -1,0 +1,40 @@
+appId: com.nanomark.app
+productName: NanoMark
+copyright: Copyright (c) 2026 Tomas Girao
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - package.json
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: NanoMark
+  artifactName: ${productName}-${version}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+mac:
+  icon: build/icon.png
+  category: public.app-category.productivity
+  target: [dmg]
+
+linux:
+  icon: build/icon.png
+  category: Office
+  target: [AppImage]

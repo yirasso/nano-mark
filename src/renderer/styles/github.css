@@ -1,0 +1,83 @@
+/*
+ * Primer tokens, read straight off github.com rather than transcribed from
+ * memory: the values below were sampled from a rendered markdown blob in both
+ * colour schemes. Do not "tidy" them — they are measurements.
+ *
+ * Names follow GitHub's own (fgColor / bgColor / prettylights-syntax-*).
+ */
+:root {
+  --gh-fg-default: #1f2328;
+  --gh-fg-muted: #59636e;
+  --gh-fg-accent: #0969da;
+
+  --gh-bg-default: #ffffff;
+  --gh-bg-muted: #f6f8fa;
+  --gh-bg-neutral-muted: #818b981f;
+
+  --gh-border-default: #d1d9e0;
+  --gh-border-muted: #d1d9e0b3;
+
+  --gh-selection: #0969da26;
+
+  --gh-comment: #59636e;
+  --gh-constant: #0550ae;
+  --gh-entity: #6639ba;
+  --gh-entity-tag: #0550ae;
+  --gh-keyword: #cf222e;
+  --gh-string: #0a3069;
+  --gh-string-regexp: #116329;
+  --gh-variable: #953800;
+  --gh-storage-modifier-import: #1f2328;
+  --gh-markup-heading: #0550ae;
+  --gh-markup-list: #3b2300;
+  --gh-markup-bold: #1f2328;
+  --gh-markup-italic: #1f2328;
+  --gh-markup-inserted-text: #116329;
+  --gh-markup-inserted-bg: #dafbe1;
+  --gh-markup-deleted-text: #82071e;
+  --gh-markup-deleted-bg: #ffebe9;
+  --gh-invalid: #d1242f;
+
+  --gh-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* Code view metrics, also measured: 12px text on a 20px grid. */
+  --gh-code-size: 12px;
+  --gh-code-line: 20px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gh-fg-default: #f0f6fc;
+    --gh-fg-muted: #9198a1;
+    --gh-fg-accent: #4493f8;
+
+    --gh-bg-default: #0d1117;
+    --gh-bg-muted: #151b23;
+    --gh-bg-neutral-muted: #656c7633;
+
+    --gh-border-default: #3d444d;
+    --gh-border-muted: #3d444db3;
+
+    --gh-selection: #4493f83d;
+
+    --gh-comment: #9198a1;
+    --gh-constant: #79c0ff;
+    --gh-entity: #d2a8ff;
+    --gh-entity-tag: #7ee787;
+    --gh-keyword: #ff7b72;
+    --gh-string: #a5d6ff;
+    --gh-string-regexp: #7ee787;
+    --gh-variable: #ffa657;
+    --gh-storage-modifier-import: #f0f6fc;
+    --gh-markup-heading: #1f6feb;
+    --gh-markup-list: #f2cc60;
+    --gh-markup-bold: #f0f6fc;
+    --gh-markup-italic: #f0f6fc;
+    --gh-markup-inserted-text: #aff5b4;
+    --gh-markup-inserted-bg: #033a16;
+    --gh-markup-deleted-text: #ffdcd7;
+    --gh-markup-deleted-bg: #67060c;
+    --gh-invalid: #ff7b72;
+  }
+}

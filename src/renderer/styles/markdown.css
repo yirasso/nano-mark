@@ -1,0 +1,119 @@
+/*
+ * The rendered pane. `github-markdown-css` is GitHub's own stylesheet, so the
+ * element rules are not restated here; this file only places it in the pane and
+ * fixes up the two things that differ from github.com today.
+ */
+
+.markdown {
+  height: 100%;
+  overflow: auto;
+  /* Measured: the blob container pads its content by 32px. */
+  padding: 32px;
+  background: var(--gh-bg-default);
+  user-select: text;
+  cursor: auto;
+}
+
+.markdown .markdown-body {
+  /* Measured: the rendered body caps at 1012px. */
+  max-width: 1012px;
+  margin: 0 auto;
+}
+
+/* github.com underlines links in rendered markdown; the packaged stylesheet
+   still ships the older underline-on-hover rule. */
+.markdown-body a {
+  text-decoration: underline;
+}
+
+/*
+ * Fenced code, coloured with the same Primer tokens the editor uses. The class
+ * groupings are highlight.js's official GitHub themes, which annotate each rule
+ * with the prettylights token it stands for.
+ */
+.markdown-body .hljs-doctag,
+.markdown-body .hljs-keyword,
+.markdown-body .hljs-meta .hljs-keyword,
+.markdown-body .hljs-template-tag,
+.markdown-body .hljs-template-variable,
+.markdown-body .hljs-type,
+.markdown-body .hljs-variable.language_ {
+  color: var(--gh-keyword);
+}
+
+.markdown-body .hljs-title,
+.markdown-body .hljs-title.class_,
+.markdown-body .hljs-title.class_.inherited__,
+.markdown-body .hljs-title.function_ {
+  color: var(--gh-entity);
+}
+
+.markdown-body .hljs-attr,
+.markdown-body .hljs-attribute,
+.markdown-body .hljs-literal,
+.markdown-body .hljs-meta,
+.markdown-body .hljs-number,
+.markdown-body .hljs-operator,
+.markdown-body .hljs-variable,
+.markdown-body .hljs-selector-attr,
+.markdown-body .hljs-selector-class,
+.markdown-body .hljs-selector-id {
+  color: var(--gh-constant);
+}
+
+.markdown-body .hljs-regexp,
+.markdown-body .hljs-string,
+.markdown-body .hljs-meta .hljs-string {
+  color: var(--gh-string);
+}
+
+.markdown-body .hljs-built_in,
+.markdown-body .hljs-symbol {
+  color: var(--gh-variable);
+}
+
+.markdown-body .hljs-comment,
+.markdown-body .hljs-code,
+.markdown-body .hljs-formula {
+  color: var(--gh-comment);
+}
+
+.markdown-body .hljs-name,
+.markdown-body .hljs-quote,
+.markdown-body .hljs-selector-tag,
+.markdown-body .hljs-selector-pseudo {
+  color: var(--gh-entity-tag);
+}
+
+.markdown-body .hljs-subst {
+  color: var(--gh-storage-modifier-import);
+}
+
+.markdown-body .hljs-section {
+  color: var(--gh-markup-heading);
+  font-weight: bold;
+}
+
+.markdown-body .hljs-bullet {
+  color: var(--gh-markup-list);
+}
+
+.markdown-body .hljs-emphasis {
+  color: var(--gh-markup-italic);
+  font-style: italic;
+}
+
+.markdown-body .hljs-strong {
+  color: var(--gh-markup-bold);
+  font-weight: bold;
+}
+
+.markdown-body .hljs-addition {
+  color: var(--gh-markup-inserted-text);
+  background-color: var(--gh-markup-inserted-bg);
+}
+
+.markdown-body .hljs-deletion {
+  color: var(--gh-markup-deleted-text);
+  background-color: var(--gh-markup-deleted-bg);
+}
