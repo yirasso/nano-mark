@@ -21,7 +21,7 @@ saves by itself and never asks you anything.
 NanoMark opens one **worktree** at a time — a folder you choose, the way
 Obsidian opens a vault. The sidebar is that folder's markdown files, the search
 covers that folder, and the app cannot read or write a single byte outside it.
-`Change worktree` swaps it; the app reopens it next time you start.
+`Open another folder` swaps it; the app reopens it next time you start.
 
 That boundary is not a preference, it is the security model. Every path arriving
 from the interface is resolved through its symlinks and checked against the open
@@ -63,9 +63,15 @@ second later the file is on disk. Switching files, leaving the window and
 quitting each force the pending write out first — the window is held open until
 the editor confirms it finished.
 
-Edit the same file in another program and NanoMark reloads it. If you have
-unsaved work it keeps your buffer instead and offers to reload, rather than
-choosing for you.
+The header says so: `Saved` while that holds, `Saving…` while a write is out.
+The other half of never being asked to save is being told when it did not work —
+a read-only file, a full disk, a network drive that dropped. Then the header
+says **`Not saved`** and stays saying it, keeping your text in hand and retrying
+on a widening delay until a write lands.
+
+Edit the same file in another program and NanoMark reloads it, and says it did.
+If you have unsaved work it keeps your buffer instead and offers you both ways
+out — reload from disk, or keep yours — rather than choosing for you.
 
 A file that arrived with CRLF line endings leaves with CRLF, so a note kept in a
 git repository does not turn into a whole-file diff the first time you touch it.
@@ -99,19 +105,26 @@ the system.
 
 | | |
 | --- | --- |
+| `F1` | the whole list, in the app |
 | `Ctrl+E` | source or rendered |
 | `Ctrl+F` | jump to the search bar |
 | `Ctrl+B` | show or hide the sidebar |
 | `Ctrl+N` | new file, next to the current one |
-| `Ctrl+O` | change worktree |
+| `Ctrl+Shift+N` | new folder |
+| `Ctrl+O` | open another folder |
 | `Ctrl+S` | save now, though auto-save already has you covered |
-| `F2` | rename the selected file |
-| `Delete` | move the selected file to the recycle bin |
+| `F2` | rename the row the tree is on |
+| `Delete` | move that row to the recycle bin, after asking |
+| `↑ ↓` `→ ←` `enter` | walk the tree, unfold a folder, open a file |
 | `↑ ↓` `enter` | walk the search results and open one |
 | `esc` | clear the search |
 
-Deleting goes to the recycle bin, through the shell. Nothing here calls
-`unlink`.
+The tree is a real tree to the keyboard: arrows walk it, `Shift+F10` opens the
+row menu, and the menu prints every accelerator next to its command. On macOS
+the same commands are in the menu bar.
+
+Deleting goes to the recycle bin, through the shell, and asks first — naming the
+file, or the folder and everything under it. Nothing here calls `unlink`.
 
 ---
 
