@@ -2,6 +2,8 @@
 
 # NanoMark
 
+[![Latest release](https://img.shields.io/github/v/release/yirasso/nano-mark?display_name=tag&label=release&color=0969da)](https://github.com/yirasso/nano-mark/releases/latest)
+
 **A markdown editor that gets out of the way, and looks exactly like GitHub.**
 
 Point it at a folder and that folder is the session. Write in a source view that
