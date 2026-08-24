@@ -48,14 +48,6 @@ export function FolderIcon(props: IconProps): React.JSX.Element {
   )
 }
 
-export function PlusIcon(props: IconProps): React.JSX.Element {
-  return (
-    <Svg {...props}>
-      <path d="M8 3.4v9.2M3.4 8h9.2" />
-    </Svg>
-  )
-}
-
 export function SidebarIcon(props: IconProps): React.JSX.Element {
   return (
     <Svg {...props} size={props.size ?? 15}>
@@ -104,6 +96,15 @@ export function SwapIcon(props: IconProps): React.JSX.Element {
     <Svg {...props}>
       <path d="M2.6 5.4h8.2M8.4 3l2.4 2.4-2.4 2.4" />
       <path d="M13.4 10.6H5.2M7.6 8.2l-2.4 2.4 2.4 2.4" />
+    </Svg>
+  )
+}
+
+export function KeyboardIcon(props: IconProps): React.JSX.Element {
+  return (
+    <Svg {...props} size={props.size ?? 15}>
+      <rect x="1.2" y="3.9" width="13.6" height="8.2" rx="1.5" />
+      <path d="M4 6.6h.01M6.4 6.6h.01M8.8 6.6h.01M11.2 6.6h.01M5.2 9.4h5.6" />
     </Svg>
   )
 }

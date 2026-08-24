@@ -12,6 +12,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { foldGutter, foldKeymap, syntaxHighlighting } from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
+import { spellcheckProseOnly } from './editor-spellcheck'
 import { githubHighlight, githubMarkdownTags, githubTheme } from './editor-theme'
 import { samePath } from '../lib/paths'
 
@@ -71,6 +72,8 @@ export function Editor({
         extensions: [githubMarkdownTags]
       }),
       syntaxHighlighting(githubHighlight),
+      // Chromium checks the whole editable; this keeps it off the code in it.
+      spellcheckProseOnly,
       githubTheme,
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
       placeholder('Write something.'),

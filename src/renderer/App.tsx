@@ -233,15 +233,19 @@ export function App(): React.JSX.Element {
       if (!pending) return
       void guard(async () => {
         const created = await window.nano.entry.create(pending.parentPath, name, pending.kind)
-        // Selection moves before the tree does, so the open file is never
-        // momentarily absent from it.
+        // The tree is refreshed before the selection moves, so the new file is
+        // never a path the tree has not heard of yet — which is the one thing
+        // that makes the app let go of an open file.
+        await refreshTree()
         if (pending.kind === 'file') {
+          // A new file is empty, so there is nothing to preview: open it in the
+          // editor, where the caret already goes.
+          setMode('edit')
           setSelectedPath(created)
           trackCursor(created)
         } else {
           setExpanded((prev) => new Set(prev).add(created))
         }
-        await refreshTree()
       })
     },
     [draft, guard, refreshTree, trackCursor]
@@ -667,7 +671,6 @@ export function App(): React.JSX.Element {
         worktree={worktree}
         tree={tree}
         state={treeState}
-        onNewFile={newFileHere}
         onChangeWorktree={switchWorktree}
         onWorktreeContext={openWorktreeMenu}
         search={{
@@ -716,6 +719,7 @@ export function App(): React.JSX.Element {
           onSetMode={setMode}
           onToggleTheme={theme.toggle}
           onThemeContext={openThemeMenu}
+          onShowShortcuts={() => setShortcutsOpen(true)}
           onRetrySave={() => void saveNow()}
           onReload={() => void reloadDoc()}
           onKeepMine={() => void keepMine()}

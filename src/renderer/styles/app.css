@@ -107,27 +107,6 @@ button {
   padding: 4px 8px 20px;
 }
 
-.sidebar__footer {
-  flex: 0 0 auto;
-  padding: 6px 8px 10px;
-}
-
-.sidebar__add {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: 12.5px;
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
-}
-.sidebar__add:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
 /* ---------- worktree ---------- */
 
 .worktree {
@@ -155,7 +134,7 @@ button {
   text-transform: uppercase;
 }
 
-.worktree__add {
+.worktree__swap {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -165,7 +144,7 @@ button {
   color: var(--text-faint);
   transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
 }
-.worktree__add:hover {
+.worktree__swap:hover {
   background: var(--surface-hover);
   color: var(--accent);
 }

@@ -1,6 +1,6 @@
 import type { SaveState } from '../hooks/useDocument'
 import { MOD } from '../lib/platform'
-import { MoonIcon, SidebarIcon, SunIcon } from './Icons'
+import { KeyboardIcon, MoonIcon, SidebarIcon, SunIcon } from './Icons'
 
 export interface Crumb {
   name: string
@@ -23,6 +23,7 @@ interface TopbarProps {
   onSetMode: (mode: 'edit' | 'preview') => void
   onToggleTheme: () => void
   onThemeContext: (event: React.MouseEvent) => void
+  onShowShortcuts: () => void
   onRetrySave: () => void
   onReload: () => void
   onKeepMine: () => void
@@ -49,6 +50,7 @@ export function Topbar({
   onSetMode,
   onToggleTheme,
   onThemeContext,
+  onShowShortcuts,
   onRetrySave,
   onReload,
   onKeepMine
@@ -124,6 +126,16 @@ export function Topbar({
             />
           </div>
         ) : null}
+
+        <button
+          type="button"
+          className="topbar__toggle"
+          onClick={onShowShortcuts}
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (F1)"
+        >
+          <KeyboardIcon />
+        </button>
 
         <button
           type="button"

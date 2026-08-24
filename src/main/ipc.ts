@@ -14,6 +14,7 @@ import {
   writeDocument
 } from './files'
 import { assertInsideWorktree, clearWorktree, registerWorktree } from './paths'
+import { applyDocumentLanguage } from './spellcheck'
 import { getState, patchState } from './store'
 import { stopWatching, watchWorktree } from './watcher'
 
@@ -100,10 +101,19 @@ export function registerIpcHandlers(): void {
     return buildTree(worktree.path)
   })
 
-  ipcMain.handle(IPC.fileRead, (_event, target: string) => readDocument(target))
+  // Opening a file is also where the spellchecker learns what language to use,
+  // because the answer is in the file that was just read.
+  ipcMain.handle(IPC.fileRead, async (_event, target: string) => {
+    const payload = await readDocument(target)
+    applyDocumentLanguage(payload.content)
+    return payload
+  })
 
   ipcMain.handle(IPC.fileWrite, (_event, target: string, content: string) => {
     if (typeof content !== 'string') throw new Error('Invalid content')
+    // A file that started empty only says what language it is once something
+    // has been written in it, so every save is another chance to tell.
+    applyDocumentLanguage(content)
     return writeDocument(target, content)
   })
 

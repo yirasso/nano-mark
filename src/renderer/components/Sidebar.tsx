@@ -3,7 +3,7 @@ import { Tree, type TreeCallbacks, type TreeState } from './Tree'
 import { SearchBar } from './SearchBar'
 import { SearchResults } from './SearchResults'
 import { MOD } from '../lib/platform'
-import { PlusIcon, SwapIcon } from './Icons'
+import { SwapIcon } from './Icons'
 
 export interface SidebarSearch {
   inputRef: React.RefObject<HTMLInputElement | null>
@@ -27,7 +27,6 @@ interface SidebarProps extends TreeCallbacks {
   tree: FileNode[]
   state: TreeState
   search: SidebarSearch
-  onNewFile: () => void
   onChangeWorktree: () => void
   onWorktreeContext: (event: React.MouseEvent, worktree: Worktree) => void
 }
@@ -38,18 +37,32 @@ export function Sidebar({
   tree,
   state,
   search,
-  onNewFile,
   onChangeWorktree,
   onWorktreeContext,
   ...callbacks
 }: SidebarProps): React.JSX.Element {
   const searching = search.query.trim().length > 0
 
+  // A right-click that no row claimed belongs to the folder itself: rows and the
+  // worktree button stop the event, so whatever reaches here is the empty space
+  // around them, and the empty space is the root of the worktree.
+  const onBackgroundContext = (event: React.MouseEvent): void => {
+    if (!worktree) return
+    // Except over a name field, where the menu would blur the caret and commit
+    // a half-typed name.
+    if ((event.target as HTMLElement).closest('input')) return
+    onWorktreeContext(event, worktree)
+  }
+
   // Hiding uses `visibility`, not opacity: it takes the panel out of the
   // accessibility tree and blurs anything inside it, so a rename field can never
   // keep the caret in a panel nobody can see.
   return (
-    <aside className="sidebar" data-hidden={hidden ? 'true' : undefined}>
+    <aside
+      className="sidebar"
+      data-hidden={hidden ? 'true' : undefined}
+      onContextMenu={onBackgroundContext}
+    >
       <div className="sidebar__top drag" />
 
       {worktree ? (
@@ -65,12 +78,12 @@ export function Sidebar({
             </button>
             <button
               type="button"
-              className="worktree__add"
-              onClick={onNewFile}
-              aria-label="New file"
-              title={`New file (${MOD}+N)`}
+              className="worktree__swap"
+              onClick={onChangeWorktree}
+              aria-label="Open another folder"
+              title={`Open a different folder (${MOD}+O)`}
             >
-              <PlusIcon size={13} />
+              <SwapIcon size={13} />
             </button>
           </div>
 
@@ -108,18 +121,6 @@ export function Sidebar({
       ) : (
         <div className="sidebar__scroll" />
       )}
-
-      <div className="sidebar__footer">
-        <button
-          type="button"
-          className="sidebar__add"
-          onClick={onChangeWorktree}
-          title={`Open a different folder (${MOD}+O)`}
-        >
-          <SwapIcon size={13} />
-          <span>Open another folder</span>
-        </button>
-      </div>
     </aside>
   )
 }
