@@ -135,6 +135,22 @@ file, or the folder and everything under it. Nothing here calls `unlink`.
 
 ---
 
+## Get it
+
+The current release is **0.3.0**, for Windows. Both files are on the
+[releases page](https://github.com/yirasso/nano-mark/releases/latest).
+
+| | |
+| --- | --- |
+| `NanoMark-0.3.0-setup.exe` | installs it, with a shortcut and an uninstaller |
+| `NanoMark-0.3.0-portable.exe` | one file that keeps its session in a `NanoMark-data` folder beside itself and leaves nothing behind |
+
+Neither is code-signed, so Windows SmartScreen will want a *More info → Run
+anyway* the first time. Packaging is wired for Windows only — see
+[Known limits](#known-limits).
+
+---
+
 # Part 2 — For developers
 
 ## Run it
