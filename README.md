@@ -28,16 +28,11 @@ from the interface is resolved through its symlinks and checked against the open
 worktree before anything touches the disk. A path that lands outside is refused,
 not clamped.
 
-**No accounts, no sync, no update check, no telemetry.** The packaged build
-ships a Content-Security-Policy with `connect-src 'none'`, so the interface
-could not make a request even if something in it tried to.
-
-There is exactly one exception, and it is not the interface making it: on
-Windows and Linux the spellchecker is Chromium's, and Chromium fetches the
-Hunspell dictionary for a language from Google's CDN the first time it needs
-it, then caches it. That request comes from the browser process, underneath the
-page, which is why the CSP does not cover it. macOS uses the system
-spellchecker and downloads nothing.
+**It never touches the network.** No accounts, no sync, no update check, no
+telemetry, and no spellchecker reaching out for a dictionary. The packaged
+build ships a Content-Security-Policy with `connect-src 'none'`, and the
+window is built with the built-in spellchecker switched off, which is the only
+part of Chromium that would have made a request on its own.
 
 ## Two views of the same file
 
@@ -95,44 +90,6 @@ It runs on every keystroke, so it is bounded on every axis: it caps results,
 skips files over a megabyte, opens at most eight at a time, and waits for a
 second character before it starts reading contents.
 
-## The spellchecker follows the file
-
-Chromium's spellchecker does not work out what language you are writing in — it
-checks against whatever dictionaries you enable, and the wrong one underlines
-every second word. So NanoMark reads the language off the file itself, from the
-frequency of function words, and enables it — together with English.
-
-Two dictionaries, because Chromium calls a word a mistake only when *none* of
-the enabled ones knows it. In one Portuguese file `bacalhau` passes on the
-Portuguese dictionary and `deploy` passes on the English one, while `bacalau`
-and `deploi` are still caught. Borrowed technical vocabulary stops being a wall
-of red without the checker going quiet.
-
-Two, and never more. Every extra dictionary widens the set of accepted words,
-and a typo in one language is often a real word in another: with Portuguese
-enabled, `them` mistyped as `tem` is no longer a mistake. That is the price of
-the pair, and it is why there is not a third.
-
-It reads prose only: fenced blocks, inline code, link targets and URLs come out
-first, so a note that is half `curl` commands is still judged on the sentences
-around them. Nineteen languages are recognised, and the guess has to be clearly
-ahead of the runner-up to count — a heading, a three-word note or a file that is
-only commands falls back to the language the machine is set to rather than
-guessing. Regional spelling follows the machine too, so European Portuguese is
-not corrected against Brazilian spellings.
-
-Right-click an underlined word for the corrections, and for `Add to the
-dictionary` when the word was right all along. The menu names the language it
-just checked against — `Checking Portuguese (Portugal) and English (United
-States)` — because those changed by themselves when you opened the file.
-
-The underline is kept off code the same way. Chromium checks the whole editable
-and knows nothing about markdown, so the grammar hands it the answer: fenced and
-indented blocks, inline code, URLs and inline HTML are marked `spellcheck="false"`
-and come out unmarked, while the prose around them is still checked. A command
-written as a plain paragraph rather than inside a fence is prose as far as the
-grammar is concerned, and is still checked — fencing it is what exempts it.
-
 ## Light or dark
 
 The sun/moon button follows the system until you press it. The choice drives the
@@ -150,6 +107,7 @@ the system.
 | | |
 | --- | --- |
 | `F1` | the whole list, in the app — or the keyboard button in the header |
+| `Shift+F1` | the markdown guide, built into the app |
 | `Ctrl+E` | source or rendered |
 | `Ctrl+F` | jump to the search bar |
 | `Ctrl+B` | show or hide the sidebar |

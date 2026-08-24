@@ -12,7 +12,6 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { foldGutter, foldKeymap, syntaxHighlighting } from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { spellcheckProseOnly } from './editor-spellcheck'
 import { githubHighlight, githubMarkdownTags, githubTheme } from './editor-theme'
 import { samePath } from '../lib/paths'
 
@@ -34,6 +33,8 @@ interface EditorProps {
   loadedPath: string | null
   reveal: Reveal | null
   onChange: (next: string) => void
+  /** A document the app supplies rather than the disk: shown, never edited. */
+  readOnly?: boolean
 }
 
 export function Editor({
@@ -41,12 +42,14 @@ export function Editor({
   value,
   loadedPath,
   reveal,
-  onChange
+  onChange,
+  readOnly = false
 }: EditorProps): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
   const pathRef = useRef<string | null>(null)
+  const readOnlyRef = useRef(false)
   const appliedReveal = useRef(0)
   const extensionsRef = useRef<Extension[]>([])
 
@@ -65,15 +68,12 @@ export function Editor({
       foldGutter(),
       // GitHub's blob view does not soft-wrap; long lines scroll sideways.
       EditorState.tabSize.of(4),
-      EditorView.contentAttributes.of({ spellcheck: 'true' }),
       markdown({
         base: markdownLanguage,
         codeLanguages: languages,
         extensions: [githubMarkdownTags]
       }),
       syntaxHighlighting(githubHighlight),
-      // Chromium checks the whole editable; this keeps it off the code in it.
-      spellcheckProseOnly,
       githubTheme,
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
       placeholder('Write something.'),
@@ -101,9 +101,20 @@ export function Editor({
     const view = viewRef.current
     if (!view) return
 
-    if (pathRef.current !== path) {
+    // A read-only document is a different document, even at the same path.
+    if (pathRef.current !== path || readOnlyRef.current !== readOnly) {
       pathRef.current = path
-      view.setState(EditorState.create({ doc: value, extensions: extensionsRef.current }))
+      readOnlyRef.current = readOnly
+      view.setState(
+        EditorState.create({
+          doc: value,
+          // `editable`, not `readOnly`: it also drops the caret, while
+          // leaving the text selectable so examples can be copied out.
+          extensions: readOnly
+            ? [...extensionsRef.current, EditorView.editable.of(false)]
+            : extensionsRef.current
+        })
+      )
       view.scrollDOM.scrollTop = 0
       return
     }
@@ -115,7 +126,7 @@ export function Editor({
         annotations: programmatic.of(true)
       })
     }
-  }, [path, value])
+  }, [path, value, readOnly])
 
   // Runs after the document swap above, so the text is already in the view.
   useEffect(() => {
@@ -142,8 +153,8 @@ export function Editor({
   }, [reveal, path, value, loadedPath])
 
   useEffect(() => {
-    if (path) viewRef.current?.focus()
-  }, [path])
+    if (path && !readOnly) viewRef.current?.focus()
+  }, [path, readOnly])
 
   return <div className="editor" ref={hostRef} />
 }

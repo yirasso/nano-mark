@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown'
+import { highlightCodeBlocks, renderMarkdown } from './markdown'
 
 describe('renderMarkdown', () => {
   it('renders ordinary markdown', () => {
@@ -44,5 +44,29 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('[example](https://example.com)')
     expect(html).toContain('rel="noreferrer noopener"')
     expect(html).not.toContain('target=')
+  })
+})
+
+describe('highlightCodeBlocks', () => {
+  const host = (markdown: string): HTMLElement => {
+    const el = document.createElement('div')
+    el.innerHTML = renderMarkdown(markdown)
+    return el
+  }
+
+  it('colours a fence that named its language', async () => {
+    const el = host('```js\nconst x = 1\n```')
+    await highlightCodeBlocks(el)
+    expect(el.querySelector('pre code')?.innerHTML).toContain('<span')
+  })
+
+  // GitHub leaves an untagged fence plain. Guessing paints shell output and log
+  // excerpts in the colours of whichever language they happened to resemble.
+  it('leaves a fence with no language alone', async () => {
+    const el = host('```\nno language, no highlighting\n```')
+    await highlightCodeBlocks(el)
+    const code = el.querySelector('pre code')
+    expect(code?.innerHTML).not.toContain('<span')
+    expect(code?.hasAttribute('data-highlighted')).toBe(false)
   })
 })

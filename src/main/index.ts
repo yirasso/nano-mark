@@ -5,7 +5,6 @@ import { registerIpcHandlers, restoreWorktree } from './ipc'
 import { installApplicationMenu } from './menu'
 import { flushState, getState, loadState, patchState } from './store'
 import { usePortableDataDir } from './portable'
-import { installSpellcheckMenu } from './spellcheck'
 import { stopWatching } from './watcher'
 
 const isWindows = process.platform === 'win32'
@@ -84,13 +83,13 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      spellcheck: true
+      // Explicit, because Electron enables it by default. Leaving it on would
+      // have Chromium fetch a dictionary over the network on first use.
+      spellcheck: false
     }
   })
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
-
-  installSpellcheckMenu(mainWindow)
 
   // Nothing in this app should ever navigate away or open a second window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

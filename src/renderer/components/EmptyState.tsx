@@ -6,13 +6,15 @@ interface EmptyStateProps {
   onChangeWorktree: () => void
   onNewFile: () => void
   onShowShortcuts: () => void
+  onShowGuide: () => void
 }
 
 export function EmptyState({
   hasWorktree,
   onChangeWorktree,
   onNewFile,
-  onShowShortcuts
+  onShowShortcuts,
+  onShowGuide
 }: EmptyStateProps): React.JSX.Element {
   if (!hasWorktree) {
     return (
@@ -39,6 +41,9 @@ export function EmptyState({
       <div className="empty__actions">
         <button type="button" className="button" onClick={onNewFile}>
           New file <kbd>{MOD}</kbd> <kbd>N</kbd>
+        </button>
+        <button type="button" className="button button--quiet" onClick={onShowGuide}>
+          Markdown guide <kbd>⇧</kbd> <kbd>F1</kbd>
         </button>
         <button type="button" className="button button--quiet" onClick={onShowShortcuts}>
           All shortcuts <kbd>F1</kbd>

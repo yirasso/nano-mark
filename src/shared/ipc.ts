@@ -36,7 +36,8 @@ export const APP_COMMANDS = [
   'search',
   'toggle-sidebar',
   'toggle-mode',
-  'shortcuts'
+  'shortcuts',
+  'markdown-guide'
 ] as const
 
 export type AppCommand = (typeof APP_COMMANDS)[number]

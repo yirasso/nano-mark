@@ -92,7 +92,10 @@ export function installApplicationMenu(): void {
     },
     {
       label: '&Help',
-      submenu: [item('Keyboard Shortcuts', 'F1', 'shortcuts')]
+      submenu: [
+        item('Keyboard Shortcuts', 'F1', 'shortcuts'),
+        item('Markdown Guide', 'Shift+F1', 'markdown-guide')
+      ]
     }
   ]
 

@@ -25,8 +25,21 @@ import {
 } from './lib/paths'
 import { BIN, MOD } from './lib/platform'
 import { findNode, flattenVisible } from './lib/tree'
+import MARKDOWN_GUIDE from './content/markdown-guide.md?raw'
 
 type Mode = 'edit' | 'preview'
+
+/**
+ * The built-in markdown guide. It is compiled into the application rather than
+ * written into the worktree, so it cannot be edited away or deleted, and opening
+ * it never touches the folder the user is working in.
+ *
+ * The sentinel is what the editor swaps state on. Every real path arrives from
+ * the main process resolved and absolute, so a scheme like this cannot collide
+ * with one.
+ */
+const GUIDE_PATH = 'nanomark://markdown-guide'
+const GUIDE_NAME = 'Markdown guide.md'
 
 interface Notice {
   /** Distinct per notice, so the same message twice restarts the timer. */
@@ -59,6 +72,7 @@ export function App(): React.JSX.Element {
   const [contextPath, setContextPath] = useState<string | null>(null)
   const [reveal, setReveal] = useState<Reveal | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
   // Where the keyboard is in the tree, which is not always the open file.
   const [cursor, setCursor] = useState<{ path: string; token: number } | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
@@ -166,6 +180,7 @@ export function App(): React.JSX.Element {
       setReveal(null)
       setCursor(null)
       setMode('edit')
+      setGuideOpen(false)
       clearSearch()
       notify(`Opened ${next.name}`)
     })()
@@ -182,8 +197,17 @@ export function App(): React.JSX.Element {
     })
   }, [])
 
+  const closeGuide = useCallback(() => setGuideOpen(false), [])
+
+  const openGuide = useCallback(() => {
+    setGuideOpen(true)
+    setMode('edit')
+    clearSearch()
+  }, [clearSearch])
+
   const selectFile = useCallback(
     (node: FileNode) => {
+      setGuideOpen(false)
       setSelectedPath(node.path)
       trackCursor(node.path)
     },
@@ -241,6 +265,7 @@ export function App(): React.JSX.Element {
           // A new file is empty, so there is nothing to preview: open it in the
           // editor, where the caret already goes.
           setMode('edit')
+          setGuideOpen(false)
           setSelectedPath(created)
           trackCursor(created)
         } else {
@@ -313,6 +338,7 @@ export function App(): React.JSX.Element {
       }
 
       expandTo(match.path, false)
+      setGuideOpen(false)
       setSelectedPath(match.path)
       trackCursor(match.path)
       setMode('edit')
@@ -549,8 +575,8 @@ export function App(): React.JSX.Element {
   }, [worktree])
 
   const toggleMode = useCallback(() => {
-    if (selectedPath) setMode((m) => (m === 'edit' ? 'preview' : 'edit'))
-  }, [selectedPath])
+    if (selectedPath || guideOpen) setMode((m) => (m === 'edit' ? 'preview' : 'edit'))
+  }, [guideOpen, selectedPath])
 
   // Rename and delete follow the tree cursor when it has been moved, and the
   // open file otherwise, so neither is stranded behind a mouse click.
@@ -588,12 +614,16 @@ export function App(): React.JSX.Element {
           return
         case 'shortcuts':
           setShortcutsOpen(true)
+          return
+        case 'markdown-guide':
+          openGuide()
       }
     },
     [
       focusSearch,
       newFileHere,
       newFolderHere,
+      openGuide,
       saveNow,
       startRename,
       switchWorktree,
@@ -616,6 +646,9 @@ export function App(): React.JSX.Element {
         { key: 'n', mod: true, handler: newFileHere },
         { key: 'n', mod: true, shift: true, handler: newFolderHere },
         { key: 'F1', handler: () => setShortcutsOpen(true) },
+        { key: 'F1', shift: true, handler: openGuide },
+        // Only while the guide is up, so Esc keeps belonging to the search box.
+        ...(guideOpen ? [{ key: 'Escape', handler: closeGuide }] : []),
         {
           key: 'F2',
           skipInEditable: true,
@@ -636,22 +669,34 @@ export function App(): React.JSX.Element {
 
   /* ---------- header ---------- */
 
-  const fileName = useMemo(() => (selectedPath ? baseName(selectedPath) : ''), [selectedPath])
+  // What the panes and the header show: the guide when it is open, the open
+  // file otherwise. One route, so the view switch and the counts serve both.
+  const shown = guideOpen
+    ? { path: GUIDE_PATH, value: MARKDOWN_GUIDE, ready: true }
+    : { path: selectedPath, value: doc.value, ready: doc.loadedPath !== null }
+
+  const fileName = useMemo(
+    () => (guideOpen ? GUIDE_NAME : selectedPath ? baseName(selectedPath) : ''),
+    [guideOpen, selectedPath]
+  )
 
   const crumbs = useMemo(
-    () => (selectedPath && worktree ? relativeSegments(selectedPath, worktree.path) : []),
-    [selectedPath, worktree]
+    () =>
+      !guideOpen && selectedPath && worktree
+        ? relativeSegments(selectedPath, worktree.path)
+        : [],
+    [guideOpen, selectedPath, worktree]
   )
 
   const meta = useMemo(() => {
-    if (!selectedPath || doc.loadedPath === null) return ''
+    if (!shown.path || !shown.ready) return ''
     if (mode === 'preview') {
-      const words = doc.value.trim() ? doc.value.trim().split(/\s+/).length : 0
+      const words = shown.value.trim() ? shown.value.trim().split(/\s+/).length : 0
       return `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}`
     }
-    const lines = doc.value.split('\n').length
+    const lines = shown.value.split('\n').length
     return `${lines.toLocaleString()} ${lines === 1 ? 'line' : 'lines'}`
-  }, [doc.loadedPath, doc.value, mode, selectedPath])
+  }, [mode, shown.path, shown.ready, shown.value])
 
   const treeState = {
     expanded,
@@ -711,10 +756,12 @@ export function App(): React.JSX.Element {
           failure={doc.failure}
           mode={mode}
           externalChange={doc.externalChange}
-          hasDocument={selectedPath !== null}
+          hasDocument={shown.path !== null}
+          isReference={guideOpen}
           sidebarVisible={sidebarVisible}
           isDark={theme.isDark}
           onCrumb={revealCrumb}
+          onCloseReference={closeGuide}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
           onSetMode={setMode}
           onToggleTheme={theme.toggle}
@@ -726,7 +773,7 @@ export function App(): React.JSX.Element {
         />
 
         <div className="content">
-          {selectedPath ? (
+          {shown.path ? (
             <>
               <div
                 className="pane"
@@ -737,11 +784,12 @@ export function App(): React.JSX.Element {
                 inert={mode === 'preview'}
               >
                 <Editor
-                  path={selectedPath}
-                  value={doc.value}
-                  loadedPath={doc.loadedPath}
-                  reveal={reveal}
+                  path={shown.path}
+                  value={shown.value}
+                  loadedPath={guideOpen ? GUIDE_PATH : doc.loadedPath}
+                  reveal={guideOpen ? null : reveal}
                   onChange={doc.setValue}
+                  readOnly={guideOpen}
                 />
               </div>
               <div
@@ -752,7 +800,7 @@ export function App(): React.JSX.Element {
                 data-inactive={mode === 'edit' ? 'true' : undefined}
                 inert={mode === 'edit'}
               >
-                <Preview source={doc.value} active={mode === 'preview'} />
+                <Preview source={shown.value} active={mode === 'preview'} />
               </div>
             </>
           ) : (
@@ -761,6 +809,7 @@ export function App(): React.JSX.Element {
               onChangeWorktree={switchWorktree}
               onNewFile={newFileHere}
               onShowShortcuts={() => setShortcutsOpen(true)}
+              onShowGuide={openGuide}
             />
           )}
         </div>

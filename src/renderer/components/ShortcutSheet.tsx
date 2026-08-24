@@ -22,7 +22,8 @@ const GROUPS: Group[] = [
     rows: [
       { keys: [MOD, 'E'], label: 'Switch between Code and Preview' },
       { keys: [MOD, 'B'], label: 'Show or hide the sidebar' },
-      { keys: ['F1'], label: 'This list' }
+      { keys: ['F1'], label: 'This list' },
+      { keys: ['⇧', 'F1'], label: 'The markdown guide, built into the app' }
     ]
   },
   {

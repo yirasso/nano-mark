@@ -16,9 +16,12 @@ interface TopbarProps {
   mode: 'edit' | 'preview'
   externalChange: boolean
   hasDocument: boolean
+  /** A document the app supplies: it has no path on disk and is never saved. */
+  isReference: boolean
   sidebarVisible: boolean
   isDark: boolean
   onCrumb: (path: string) => void
+  onCloseReference: () => void
   onToggleSidebar: () => void
   onSetMode: (mode: 'edit' | 'preview') => void
   onToggleTheme: () => void
@@ -43,9 +46,11 @@ export function Topbar({
   mode,
   externalChange,
   hasDocument,
+  isReference,
   sidebarVisible,
   isDark,
   onCrumb,
+  onCloseReference,
   onToggleSidebar,
   onSetMode,
   onToggleTheme,
@@ -94,14 +99,25 @@ export function Topbar({
             {fileName}
           </h1>
 
-          <SaveStatus state={saveState} failure={failure} onRetry={onRetrySave} />
+          {/* A reference has nothing to save, so the slot says what it is instead. */}
+          {isReference ? (
+            <span className="blobhead__badge">Built in</span>
+          ) : (
+            <SaveStatus state={saveState} failure={failure} onRetry={onRetrySave} />
+          )}
         </div>
       ) : (
         <div className="blobhead" />
       )}
 
       <div className="topbar__right no-drag">
-        {externalChange ? (
+        {isReference ? (
+          <button type="button" className="pill__button" onClick={onCloseReference}>
+            Close guide <kbd>Esc</kbd>
+          </button>
+        ) : null}
+
+        {!isReference && externalChange ? (
           <div className="pill">
             <span>Changed on disk</span>
             <button type="button" onClick={onReload} title="Load the version on disk">

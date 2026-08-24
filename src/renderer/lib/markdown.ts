@@ -27,9 +27,16 @@ let hljsPromise: Promise<typeof import('highlight.js/lib/common').default> | nul
 /**
  * Loaded on the first preview only, so a session that never leaves the editor
  * never pays for it. `lib/common` covers the ~35 languages people actually fence.
+ *
+ * Only blocks that named a language are touched. highlight.js would happily
+ * guess at an untagged one, but GitHub does not: a fence with no language
+ * renders plain there, and guessing paints shell output and log excerpts in
+ * the colours of whichever language they happened to resemble.
  */
 export async function highlightCodeBlocks(container: HTMLElement): Promise<void> {
-  const blocks = container.querySelectorAll<HTMLElement>('pre code:not([data-highlighted])')
+  const blocks = container.querySelectorAll<HTMLElement>(
+    'pre code[class*="language-"]:not([data-highlighted])'
+  )
   if (blocks.length === 0) return
 
   hljsPromise ??= import('highlight.js/lib/common').then((mod) => mod.default)
