@@ -1,6 +1,6 @@
 {
   "name": "nanomark",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A very minimal, lightweight markdown editor",
   "main": "./out/main/index.js",
   "author": "Tomas Girao",
