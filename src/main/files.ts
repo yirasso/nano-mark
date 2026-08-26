@@ -1,8 +1,15 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { shell } from 'electron'
-import { isMarkdownPath, type DocumentPayload, type NodeKind, type WriteResult } from '@shared/types'
-import { assertInsideWorktree, assertValidFileName } from './paths'
+import {
+  isMarkdownPath,
+  type DocumentPayload,
+  type MoveResult,
+  type NodeKind,
+  type WriteResult
+} from '@shared/types'
+import { messageOf } from './errors'
+import { assertInsideWorktree, assertValidFileName, isInside } from './paths'
 
 /**
  * Writes we made ourselves, so the watcher can tell them apart from an edit
@@ -90,12 +97,72 @@ export async function renameEntry(target: string, newName: string): Promise<stri
     throw new Error(`"${finalName}" already exists`)
   }
   await fs.rename(real, next)
-  const eol = lineEndings.get(real)
-  if (eol) {
-    lineEndings.delete(real)
-    lineEndings.set(next, eol)
-  }
+  moveLineEndings(real, next)
   return next
+}
+
+/**
+ * Moves an entry into another folder. The name never changes here — only the
+ * parent does — which is the half of renaming that a drag can express.
+ */
+export async function moveEntry(target: string, destDir: string): Promise<string> {
+  const real = await assertInsideWorktree(target)
+  const realDest = await assertInsideWorktree(destDir)
+
+  const stat = await fs.stat(realDest)
+  if (!stat.isDirectory()) {
+    throw new Error(`"${path.basename(realDest)}" is not a folder`)
+  }
+  // rename() would happily move a folder inside itself, and take the whole
+  // subtree out of reach with it.
+  if (isInside(real, realDest)) {
+    throw new Error(`"${path.basename(real)}" cannot go inside itself`)
+  }
+
+  const next = path.join(realDest, path.basename(real))
+  if (next === real) return real
+  if (await exists(next)) {
+    throw new Error(`"${path.basename(real)}" is already in that folder`)
+  }
+
+  await fs.rename(real, next)
+  moveLineEndings(real, next)
+  return next
+}
+
+/**
+ * The same, for however many entries were dragged at once. Each one is its own
+ * operation: a name already taken at the destination stops that entry and none
+ * of the others, and the caller is told which is which.
+ */
+export async function moveEntries(targets: string[], destDir: string): Promise<MoveResult> {
+  const result: MoveResult = { moved: [], failed: [] }
+  for (const target of targets) {
+    try {
+      const to = await moveEntry(target, destDir)
+      // Already there is not a move, and saying so would be a lie.
+      if (to !== target) result.moved.push({ from: target, to })
+    } catch (error) {
+      result.failed.push({ path: target, message: messageOf(error) })
+    }
+  }
+  return result
+}
+
+/**
+ * Re-points remembered line endings after a path moved, the subtree with it, so
+ * a CRLF file that travelled inside a folder is still written back as CRLF.
+ */
+function moveLineEndings(from: string, to: string): void {
+  for (const [key, eol] of [...lineEndings]) {
+    if (key === from) {
+      lineEndings.delete(key)
+      lineEndings.set(to, eol)
+    } else if (isInside(from, key)) {
+      lineEndings.delete(key)
+      lineEndings.set(path.join(to, path.relative(from, key)), eol)
+    }
+  }
 }
 
 export async function trashEntry(target: string): Promise<void> {

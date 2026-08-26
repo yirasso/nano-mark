@@ -120,6 +120,7 @@ the system.
 | `F2` | rename the row the tree is on |
 | `Delete` | move that row to the recycle bin, after asking |
 | `↑ ↓` `→ ←` `enter` | walk the tree, unfold a folder, open a file |
+| `shift+↑ ↓` | select the rows the cursor walks over |
 | `↑ ↓` `enter` | walk the search results and open one |
 | `esc` | clear the search |
 
@@ -127,13 +128,37 @@ The tree is a real tree to the keyboard: arrows walk it, `Shift+F10` opens the
 row menu, and the menu prints every accelerator next to its command. On macOS
 the same commands are in the menu bar.
 
+Several rows at a time. `Shift`-click marks everything between the last row you
+touched and this one; `Ctrl`-click (with or without `Shift`) marks or unmarks a
+single row without disturbing the rest. Neither opens anything — marking five
+files and having the fifth quietly become the open document is not what the
+gesture asked for. `Delete` and the row menu then act on all of it at once, and
+a folder marked alongside something inside it carries that thing rather than
+acting on it twice.
+
 The mouse gets the same menu from a right-click anywhere in the sidebar. On a
-row it acts on that row — a folder, or the folder a file sits in. On the empty
-space below the tree it acts on the worktree itself, so `New file` there writes
-into the root. Either way a new file opens in the editor as soon as it exists.
+row it acts on that row, or on everything marked when the row is part of it — a
+right-click outside the marking moves the marking first, so the menu can never
+reach for rows the pointer is nowhere near. On the empty space below the tree it
+acts on the worktree itself, so `New file` there writes into the root. Either
+way a new file opens in the editor as soon as it exists.
+
+Rows move by hand. Drag a file or a folder onto a folder to put it inside, onto
+a row at the top level — or onto the empty space below the tree — to take it
+back out, and rest on a shut folder for a moment to unfold it on the way. A drag
+that starts on a marked row takes everything marked with it; one that starts
+anywhere else marks that row first and takes only it.
+
+The folder about to receive them is outlined; a folder dragged towards its own
+inside is refused rather than drawn as a target. The file you are editing can be
+dragged while you are editing it: the pending save goes out first, and the open
+file, the tree cursor and the unfolded folders all follow it to the new path.
+One name already taken at the destination stops that entry and nothing else —
+the app says how many arrived and why the rest stayed.
 
 Deleting goes to the recycle bin, through the shell, and asks first — naming the
-file, or the folder and everything under it. Nothing here calls `unlink`.
+file, or the folder and everything under it, or listing the batch. It asks once
+for the whole batch, not once per file. Nothing here calls `unlink`.
 
 ---
 
@@ -261,12 +286,14 @@ npm test
 npm run typecheck
 ```
 
-81 tests, weighted towards the places where being wrong is expensive rather than
-towards coverage: path traversal and symlink escapes, the worktree boundary
-moving when the worktree changes, CRLF survival, self-write suppression, the
-sanitiser against `<script>`, `onerror=` and `javascript:` URLs, search bounds
-and result ordering, the migration from the older multi-folder session, and the
-colour every markdown construct resolves to in the editor.
+147 tests, weighted towards the places where being wrong is expensive rather
+than towards coverage: path traversal and symlink escapes, the worktree boundary
+moving when the worktree changes, CRLF survival across a move, a folder refusing
+to be dragged inside itself, a batch carrying on past the one entry that could
+not move, self-write suppression, the sanitiser against
+`<script>`, `onerror=` and `javascript:` URLs, search bounds and result
+ordering, the migration from the older multi-folder session, and the colour
+every markdown construct resolves to in the editor.
 
 That last one is worth a note. `editor-theme.test.ts` parses markdown, runs it
 through the real highlight style, and asserts the resolved colour of each

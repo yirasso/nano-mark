@@ -14,8 +14,16 @@ vi.mock('electron', () => ({
   }
 }))
 
-const { consumeSelfWrite, createEntry, readDocument, renameEntry, trashEntry, writeDocument } =
-  await import('./files')
+const {
+  consumeSelfWrite,
+  createEntry,
+  moveEntries,
+  moveEntry,
+  readDocument,
+  renameEntry,
+  trashEntry,
+  writeDocument
+} = await import('./files')
 const { registerWorktree } = await import('./paths')
 
 let root = ''
@@ -143,6 +151,124 @@ describe('renameEntry', () => {
     await createEntry(root, 'taken', 'file')
     const other = await createEntry(root, 'other', 'file')
     await expect(renameEntry(other, 'taken')).rejects.toThrow(/"taken\.md" already exists/)
+  })
+})
+
+describe('moveEntry', () => {
+  it('moves a file into a folder, keeping its name', async () => {
+    const folder = await createEntry(root, 'inbox', 'dir')
+    const file = await createEntry(root, 'stray', 'file')
+    const moved = await moveEntry(file, folder)
+    expect(moved).toBe(path.join(folder, 'stray.md'))
+    await expect(fs.access(file)).rejects.toThrow()
+  })
+
+  it('moves a folder, and everything under it', async () => {
+    const outer = await createEntry(root, 'outer', 'dir')
+    const inner = await createEntry(outer, 'inner', 'dir')
+    await createEntry(inner, 'deep', 'file')
+    const moved = await moveEntry(inner, root)
+    await expect(fs.access(path.join(moved, 'deep.md'))).resolves.toBeUndefined()
+    await expect(fs.access(inner)).rejects.toThrow()
+  })
+
+  it('takes a file back out to the top level', async () => {
+    const folder = await createEntry(root, 'nested', 'dir')
+    const file = await createEntry(folder, 'surfaced', 'file')
+    const moved = await moveEntry(file, root)
+    expect(moved).toBe(path.join(root, 'surfaced.md'))
+  })
+
+  it('refuses to put a folder inside itself', async () => {
+    const outer = await createEntry(root, 'self', 'dir')
+    const inner = await createEntry(outer, 'child', 'dir')
+    await expect(moveEntry(outer, inner)).rejects.toThrow(/inside itself/)
+    await expect(moveEntry(outer, outer)).rejects.toThrow(/inside itself/)
+  })
+
+  it('refuses to overwrite something already there', async () => {
+    const folder = await createEntry(root, 'busy', 'dir')
+    await createEntry(folder, 'twin', 'file')
+    const other = await createEntry(root, 'twin', 'file')
+    await expect(moveEntry(other, folder)).rejects.toThrow(/already in that folder/)
+  })
+
+  it('refuses a destination that is not a folder', async () => {
+    const file = await createEntry(root, 'not-a-folder', 'file')
+    const other = await createEntry(root, 'wanderer', 'file')
+    await expect(moveEntry(other, file)).rejects.toThrow(/is not a folder/)
+  })
+
+  it('refuses to move outside the worktree', async () => {
+    const file = await createEntry(root, 'homebound', 'file')
+    await expect(moveEntry(file, os.tmpdir())).rejects.toThrow(/outside/)
+  })
+
+  it('keeps the line endings a file arrived with', async () => {
+    const folder = await createEntry(root, 'crlf-home', 'dir')
+    const file = path.join(root, 'crlf-mover.md')
+    await fs.writeFile(file, 'one\r\ntwo\r\n', 'utf8')
+    await readDocument(file)
+
+    const moved = await moveEntry(file, folder)
+    await writeDocument(moved, 'one\ntwo\n')
+    await expect(fs.readFile(moved, 'utf8')).resolves.toBe('one\r\ntwo\r\n')
+  })
+
+  it('keeps them for a file that travelled inside a folder', async () => {
+    const home = await createEntry(root, 'travellers', 'dir')
+    const elsewhere = await createEntry(root, 'elsewhere', 'dir')
+    const file = path.join(home, 'passenger.md')
+    await fs.writeFile(file, 'a\r\nb\r\n', 'utf8')
+    await readDocument(file)
+
+    const movedHome = await moveEntry(home, elsewhere)
+    const movedFile = path.join(movedHome, 'passenger.md')
+    await writeDocument(movedFile, 'a\nb\n')
+    await expect(fs.readFile(movedFile, 'utf8')).resolves.toBe('a\r\nb\r\n')
+  })
+})
+
+describe('moveEntries', () => {
+  it('moves every entry it is given', async () => {
+    const home = await createEntry(root, 'batch-home', 'dir')
+    const one = await createEntry(root, 'batch-one', 'file')
+    const two = await createEntry(root, 'batch-two', 'file')
+
+    const result = await moveEntries([one, two], home)
+    expect(result.failed).toEqual([])
+    expect(result.moved.map((entry) => entry.to)).toEqual([
+      path.join(home, 'batch-one.md'),
+      path.join(home, 'batch-two.md')
+    ])
+  })
+
+  it('carries on past one that cannot move, and says which', async () => {
+    const home = await createEntry(root, 'partial-home', 'dir')
+    await createEntry(home, 'blocked', 'file')
+    const blocked = await createEntry(root, 'blocked', 'file')
+    const fine = await createEntry(root, 'unblocked', 'file')
+
+    const result = await moveEntries([blocked, fine], home)
+    expect(result.moved.map((entry) => entry.from)).toEqual([fine])
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0].path).toBe(blocked)
+    expect(result.failed[0].message).toMatch(/already in that folder/)
+  })
+
+  it('does not report an entry that was already there as moved', async () => {
+    const home = await createEntry(root, 'settled', 'dir')
+    const resident = await createEntry(home, 'resident', 'file')
+    const result = await moveEntries([resident], home)
+    expect(result).toEqual({ moved: [], failed: [] })
+  })
+
+  it('refuses one outside the worktree without touching the rest', async () => {
+    const home = await createEntry(root, 'guarded', 'dir')
+    const inside = await createEntry(root, 'guarded-note', 'file')
+    const result = await moveEntries([path.join(os.tmpdir(), 'nope.md'), inside], home)
+    expect(result.moved).toHaveLength(1)
+    expect(result.failed[0].message).toMatch(/outside/)
   })
 })
 

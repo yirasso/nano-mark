@@ -8,7 +8,7 @@ import { Preview } from './components/Preview'
 import { ShortcutSheet } from './components/ShortcutSheet'
 import { Sidebar } from './components/Sidebar'
 import { Topbar } from './components/Topbar'
-import type { Draft } from './components/Tree'
+import type { Draft, RowMods } from './components/Tree'
 import { useDocument } from './hooks/useDocument'
 import { useHotkeys, type Hotkey } from './hooks/useHotkeys'
 import { useSearch } from './hooks/useSearch'
@@ -18,13 +18,17 @@ import { messageOf } from './lib/errors'
 import {
   ancestorsWithin,
   baseName,
+  canDropInto,
   dirName,
+  isUnder,
+  rebaseAcross,
+  rebasePath,
   relativeSegments,
   samePath,
-  startsWithPath
+  topLevelPaths
 } from './lib/paths'
 import { BIN, MOD } from './lib/platform'
-import { findNode, flattenVisible } from './lib/tree'
+import { findNode, flattenVisible, rangeBetween } from './lib/tree'
 import MARKDOWN_GUIDE from './content/markdown-guide.md?raw'
 
 type Mode = 'edit' | 'preview'
@@ -71,6 +75,12 @@ export function App(): React.JSX.Element {
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const [contextPath, setContextPath] = useState<string | null>(null)
   const [reveal, setReveal] = useState<Reveal | null>(null)
+  // Every row that is marked, and the row a shift-click measures from.
+  const [marked, setMarked] = useState<Set<string>>(new Set())
+  const [anchor, setAnchor] = useState<string | null>(null)
+  // The rows being dragged, and the folder they would land in right now.
+  const [dragPaths, setDragPaths] = useState<string[]>([])
+  const [dropDir, setDropDir] = useState<string | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   // Where the keyboard is in the tree, which is not always the open file.
@@ -151,12 +161,20 @@ export function App(): React.JSX.Element {
     setContextPath(null)
   }, [])
 
+  // Renaming and moving change a path before the tree has heard about it, which
+  // is the same shape as a file disappearing. This counts the moments where the
+  // two are indistinguishable, so the guard further down can sit them out.
+  const settling = useRef(0)
+
   const guard = useCallback(
     async (action: () => Promise<void>) => {
+      settling.current += 1
       try {
         await action()
       } catch (err) {
         onError(messageOf(err))
+      } finally {
+        settling.current -= 1
       }
     },
     [onError]
@@ -179,6 +197,8 @@ export function App(): React.JSX.Element {
       setDraft(null)
       setReveal(null)
       setCursor(null)
+      setMarked(new Set())
+      setAnchor(null)
       setMode('edit')
       setGuideOpen(false)
       clearSearch()
@@ -205,13 +225,20 @@ export function App(): React.JSX.Element {
     clearSearch()
   }, [clearSearch])
 
+  /** One row marked and nothing else, which is what an ordinary click means. */
+  const markOnly = useCallback((path: string) => {
+    setMarked(new Set([path]))
+    setAnchor(path)
+  }, [])
+
   const selectFile = useCallback(
     (node: FileNode) => {
       setGuideOpen(false)
       setSelectedPath(node.path)
       trackCursor(node.path)
+      markOnly(node.path)
     },
-    [trackCursor]
+    [markOnly, trackCursor]
   )
 
   const expandTo = useCallback(
@@ -271,9 +298,10 @@ export function App(): React.JSX.Element {
         } else {
           setExpanded((prev) => new Set(prev).add(created))
         }
+        markOnly(created)
       })
     },
-    [draft, guard, refreshTree, trackCursor]
+    [draft, guard, markOnly, refreshTree, trackCursor]
   )
 
   const submitRename = useCallback(
@@ -283,6 +311,7 @@ export function App(): React.JSX.Element {
         const next = await window.nano.entry.rename(path, name)
         if (samePath(selectedPath, path)) setSelectedPath(next)
         trackCursor(next)
+        setMarked((prev) => new Set([...prev].map((p) => rebasePath(p, path, next) ?? p)))
         setExpanded((prev) => {
           if (!prev.has(path)) return prev
           const updated = new Set(prev)
@@ -297,35 +326,153 @@ export function App(): React.JSX.Element {
     [guard, notify, refreshTree, selectedPath, trackCursor]
   )
 
-  const trashEntry = useCallback(
-    (path: string) => {
-      const name = baseName(path)
+  /**
+   * The other half of renaming: same names, different parent. Everything an old
+   * path named has to follow it — the open file, the unfolded folders under it,
+   * the marking, and the row the keyboard is on — or the session ends up
+   * pointing at paths that no longer exist.
+   *
+   * Each entry is its own move, so one name already taken at the destination
+   * stops that entry and none of the others.
+   */
+  const moveEntries = useCallback(
+    (sources: string[], destDir: string) => {
+      // A folder carries what is inside it, so a selection holding both only
+      // needs the folder: moving the child afterwards would chase a path that
+      // no longer exists.
+      const targets = topLevelPaths(sources)
+      if (!canDropInto(targets, destDir)) return
+      const destName =
+        worktree && samePath(destDir, worktree.path) ? worktree.name : baseName(destDir)
+
+      void guard(async () => {
+        // A pending write still carries the old path. Sending it after the move
+        // would write to a file that is not there any more.
+        await saveNow()
+        const { moved, failed } = await window.nano.entry.move(targets, destDir)
+
+        if (moved.length > 0) {
+          setSelectedPath((prev) => (prev === null ? null : (rebaseAcross(prev, moved) ?? prev)))
+          setCursor((prev) => {
+            if (!prev) return prev
+            const next = rebaseAcross(prev.path, moved)
+            return next ? { path: next, token: prev.token } : prev
+          })
+          setMarked((prev) => new Set([...prev].map((p) => rebaseAcross(p, moved) ?? p)))
+          setExpanded((prev) => {
+            const updated = new Set<string>()
+            for (const dir of prev) updated.add(rebaseAcross(dir, moved) ?? dir)
+            // Unfold where they landed, so the rows are visible in their new
+            // home. The root is not a row, and is never folded in the first place.
+            if (!worktree || !samePath(destDir, worktree.path)) updated.add(destDir)
+            return updated
+          })
+        }
+
+        await refreshTree()
+
+        const what = moved.length === 1 ? `“${baseName(moved[0].to)}”` : `${moved.length} items`
+        if (failed.length === 0) {
+          if (moved.length > 0) notify(`Moved ${what} to ${destName}`)
+        } else if (moved.length === 0) {
+          onError(failed[0].message)
+        } else {
+          onError(`Moved ${what}, but ${failed.length} stayed — ${failed[0].message}`)
+        }
+      })
+    },
+    [guard, notify, onError, refreshTree, saveNow, worktree]
+  )
+
+  const startDrag = useCallback(
+    (node: FileNode) => {
+      // Dragging a marked row takes the whole marking. Dragging one that is not
+      // marked moves the marking onto it first, the way a plain click would.
+      const withinMarking = marked.has(node.path)
+      if (!withinMarking) markOnly(node.path)
+      setDragPaths(withinMarking ? topLevelPaths([...marked]) : [node.path])
+      setDropDir(null)
+      // A menu left open over the tree would sit on top of the drop targets.
+      closeMenu()
+    },
+    [closeMenu, markOnly, marked]
+  )
+
+  const endDrag = useCallback(() => {
+    setDragPaths([])
+    setDropDir(null)
+  }, [])
+
+  const dropOn = useCallback(
+    (dir: string) => {
+      if (dragPaths.length > 0) moveEntries(dragPaths, dir)
+    },
+    [dragPaths, moveEntries]
+  )
+
+  const expandForDrag = useCallback((path: string) => {
+    setExpanded((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
+  }, [])
+
+  const trashEntries = useCallback(
+    (paths: string[]) => {
+      const targets = topLevelPaths(paths)
+      if (targets.length === 0) return
+
       void guard(async () => {
         // The confirmation lives in the main process, so it is a real native
-        // dialog rather than something the page draws over itself.
-        const trashed = await window.nano.entry.trash(path)
-        if (!trashed) return
-        if (selectedPath && (samePath(selectedPath, path) || startsWithPath(selectedPath, path))) {
+        // dialog rather than something the page draws over itself. It asks once
+        // for the whole batch.
+        const { trashed, failed } = await window.nano.entry.trash(targets)
+        // Nothing gone and nothing refused means the dialog was cancelled.
+        if (trashed.length === 0 && failed.length === 0) return
+
+        const gone = (candidate: string): boolean =>
+          trashed.some((removed) => samePath(candidate, removed) || isUnder(candidate, removed))
+
+        if (selectedPath && gone(selectedPath)) {
           // Drop the pending write first: flushing it would put the file back.
           discardDoc()
           setSelectedPath(null)
         }
-        setCursor((prev) => (prev && startsWithPath(prev.path, path) ? null : prev))
+        setCursor((prev) => (prev && gone(prev.path) ? null : prev))
+        setMarked((prev) => new Set([...prev].filter((path) => !gone(path))))
         await refreshTree()
-        notify(`Moved “${name}” to the ${BIN}`)
+
+        const one = trashed.length === 1
+        const what = one ? `“${baseName(trashed[0])}”` : `${trashed.length} items`
+        if (failed.length === 0) {
+          notify(`Moved ${what} to the ${BIN}`)
+        } else if (trashed.length === 0) {
+          onError(failed[0].message)
+        } else {
+          onError(
+            `Moved ${what} to the ${BIN}, but ${failed.length} stayed — ${failed[0].message}`
+          )
+        }
       })
     },
-    [discardDoc, guard, notify, refreshTree, selectedPath]
+    [discardDoc, guard, notify, onError, refreshTree, selectedPath]
   )
 
   // A file deleted by another program must not be resurrected by the next
   // keystroke, so the buffer lets go of it as soon as the tree does.
   useEffect(() => {
-    if (!ready || !worktree || !selectedPath) return
+    if (!ready || !worktree || !selectedPath || settling.current > 0) return
     if (findNode(tree, selectedPath)) return
     discardDoc()
     setSelectedPath(null)
   }, [discardDoc, ready, selectedPath, tree, worktree])
+
+  // The marking is a set of paths, and paths go stale. Anything the tree no
+  // longer knows about stops being marked, so a command can never reach for it.
+  useEffect(() => {
+    if (!ready || settling.current > 0 || marked.size === 0) return
+    setMarked((prev) => {
+      const kept = [...prev].filter((path) => findNode(tree, path))
+      return kept.length === prev.size ? prev : new Set(kept)
+    })
+  }, [marked, ready, tree])
 
   const openMatch = useCallback(
     (match: SearchMatch) => {
@@ -334,6 +481,7 @@ export function App(): React.JSX.Element {
         expandTo(match.path, true)
         clearSearch()
         trackCursor(match.path)
+        markOnly(match.path)
         return
       }
 
@@ -341,6 +489,7 @@ export function App(): React.JSX.Element {
       setGuideOpen(false)
       setSelectedPath(match.path)
       trackCursor(match.path)
+      markOnly(match.path)
       setMode('edit')
 
       if (match.kind === 'content') {
@@ -353,7 +502,7 @@ export function App(): React.JSX.Element {
         }))
       }
     },
-    [clearSearch, expandTo, trackCursor]
+    [clearSearch, expandTo, markOnly, trackCursor]
   )
 
   const revealCrumb = useCallback(
@@ -362,15 +511,28 @@ export function App(): React.JSX.Element {
       clearSearch()
       expandTo(path, true)
       trackCursor(path)
+      markOnly(path)
     },
-    [clearSearch, expandTo, trackCursor]
+    [clearSearch, expandTo, markOnly, trackCursor]
   )
 
   /* ---------- context menus ---------- */
 
+  /**
+   * What a row command acts on. A row inside the marking speaks for all of it;
+   * a row outside it speaks only for itself, the way a click would.
+   */
+  const targetsFor = useCallback(
+    (path: string): string[] =>
+      marked.has(path) && marked.size > 1 ? topLevelPaths([...marked]) : [path],
+    [marked]
+  )
+
   const nodeMenuItems = useCallback(
     (node: FileNode): MenuItem[] => {
       const parentDir = node.kind === 'dir' ? node.path : dirName(node.path)
+      const targets = targetsFor(node.path)
+      const many = targets.length > 1
       return [
         {
           label: 'New file',
@@ -393,25 +555,28 @@ export function App(): React.JSX.Element {
           onSelect: () => void window.nano.entry.reveal(node.path)
         },
         {
-          label: `Move to ${BIN}`,
+          label: many ? `Move ${targets.length} items to ${BIN}` : `Move to ${BIN}`,
           accelerator: 'Del',
           danger: true,
           separatorBefore: true,
-          onSelect: () => trashEntry(node.path)
+          onSelect: () => trashEntries(targets)
         }
       ]
     },
-    [startDraft, startRename, trashEntry]
+    [startDraft, startRename, targetsFor, trashEntries]
   )
 
   const openNodeMenu = useCallback(
     (event: React.MouseEvent, node: FileNode) => {
       event.preventDefault()
       event.stopPropagation()
+      // A right-click outside the marking moves the marking onto that row, so
+      // the menu can never act on rows the pointer is nowhere near.
+      if (!marked.has(node.path)) markOnly(node.path)
       setContextPath(node.path)
       setMenu({ x: event.clientX, y: event.clientY, items: nodeMenuItems(node) })
     },
-    [nodeMenuItems]
+    [markOnly, marked, nodeMenuItems]
   )
 
   /** The keyboard route into the same menu, anchored under the focused row. */
@@ -487,33 +652,73 @@ export function App(): React.JSX.Element {
 
   const visibleRows = useMemo(() => flattenVisible(tree, expanded), [tree, expanded])
 
+  /**
+   * What a click on a row means, once its modifiers are read. Shift marks the
+   * rows between the anchor and this one; Ctrl (with or without Shift) marks or
+   * unmarks this row alone; a plain click marks it and opens or unfolds it.
+   *
+   * Neither modifier opens anything: marking several files and having the last
+   * one silently become the open document is not what the gesture asked for.
+   */
+  const activateRow = useCallback(
+    (node: FileNode, mods: RowMods) => {
+      if (mods.toggle) {
+        setMarked((prev) => {
+          const next = new Set(prev)
+          if (next.has(node.path)) next.delete(node.path)
+          else next.add(node.path)
+          return next
+        })
+        setAnchor(node.path)
+        return
+      }
+
+      // With nothing to measure from, a shift-click is just a click.
+      const from = anchor ?? cursorPath
+      if (mods.range && from) {
+        setMarked(new Set(rangeBetween(visibleRows, from, node.path)))
+        return
+      }
+
+      markOnly(node.path)
+      if (node.kind === 'dir') toggleDir(node.path)
+      else selectFile(node)
+    },
+    [anchor, cursorPath, markOnly, selectFile, toggleDir, visibleRows]
+  )
+
   const onTreeKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (visibleRows.length === 0) return
       const found = visibleRows.findIndex((row) => samePath(row.node.path, cursorPath))
       const index = found === -1 ? 0 : found
       const row = visibleRows[index]
-      const go = (next: number): void => {
+      // Holding shift while walking marks everything the walk crossed, from
+      // wherever the cursor last settled on its own.
+      const go = (next: number, extend = false): void => {
         const clamped = Math.max(0, Math.min(visibleRows.length - 1, next))
-        moveCursor(visibleRows[clamped].node.path)
+        const path = visibleRows[clamped].node.path
+        moveCursor(path)
+        if (extend) setMarked(new Set(rangeBetween(visibleRows, anchor ?? row.node.path, path)))
+        else setAnchor(path)
       }
 
       switch (event.key) {
         case 'ArrowDown':
           event.preventDefault()
-          go(index + 1)
+          go(index + 1, event.shiftKey)
           return
         case 'ArrowUp':
           event.preventDefault()
-          go(index - 1)
+          go(index - 1, event.shiftKey)
           return
         case 'Home':
           event.preventDefault()
-          go(0)
+          go(0, event.shiftKey)
           return
         case 'End':
           event.preventDefault()
-          go(visibleRows.length - 1)
+          go(visibleRows.length - 1, event.shiftKey)
           return
         case 'ArrowRight':
           event.preventDefault()
@@ -529,8 +734,7 @@ export function App(): React.JSX.Element {
         case 'Enter':
         case ' ':
           event.preventDefault()
-          if (row.node.kind === 'dir') toggleDir(row.node.path)
-          else selectFile(row.node)
+          activateRow(row.node, { range: false, toggle: false })
           return
         case 'ContextMenu':
           event.preventDefault()
@@ -542,27 +746,27 @@ export function App(): React.JSX.Element {
           openNodeMenuAt(row.node, event.target as HTMLElement)
       }
     },
-    [cursorPath, expanded, moveCursor, openNodeMenuAt, selectFile, toggleDir, visibleRows]
+    [activateRow, anchor, cursorPath, expanded, moveCursor, openNodeMenuAt, toggleDir, visibleRows]
   )
 
   /* ---------- commands ---------- */
 
   const newFileHere = useCallback(() => {
-    const anchor = cursorPath ?? selectedPath
-    const parent = anchor
-      ? findNode(tree, anchor)?.kind === 'dir'
-        ? anchor
-        : dirName(anchor)
+    const nearest = cursorPath ?? selectedPath
+    const parent = nearest
+      ? findNode(tree, nearest)?.kind === 'dir'
+        ? nearest
+        : dirName(nearest)
       : worktree?.path
     if (parent) startDraft(parent, 'file')
   }, [cursorPath, selectedPath, startDraft, tree, worktree])
 
   const newFolderHere = useCallback(() => {
-    const anchor = cursorPath ?? selectedPath
-    const parent = anchor
-      ? findNode(tree, anchor)?.kind === 'dir'
-        ? anchor
-        : dirName(anchor)
+    const nearest = cursorPath ?? selectedPath
+    const parent = nearest
+      ? findNode(tree, nearest)?.kind === 'dir'
+        ? nearest
+        : dirName(nearest)
       : worktree?.path
     if (parent) startDraft(parent, 'dir')
   }, [cursorPath, selectedPath, startDraft, tree, worktree])
@@ -601,7 +805,7 @@ export function App(): React.JSX.Element {
           if (targetPath) startRename(targetPath)
           return
         case 'trash':
-          if (targetPath) trashEntry(targetPath)
+          if (targetPath) trashEntries(targetsFor(targetPath))
           return
         case 'search':
           focusSearch()
@@ -628,8 +832,9 @@ export function App(): React.JSX.Element {
       startRename,
       switchWorktree,
       targetPath,
+      targetsFor,
       toggleMode,
-      trashEntry
+      trashEntries
     ]
   )
 
@@ -660,7 +865,7 @@ export function App(): React.JSX.Element {
           key: 'Delete',
           skipInEditable: true,
           handler: () => {
-            if (targetPath) trashEntry(targetPath)
+            if (targetPath) trashEntries(targetsFor(targetPath))
           }
         }
       ]
@@ -705,8 +910,10 @@ export function App(): React.JSX.Element {
     contextPath,
     cursorPath,
     cursorToken: cursor?.token ?? 0,
+    marked,
     tabbablePath: cursorPath ?? visibleRows[0]?.node.path ?? null,
-    draft
+    draft,
+    drag: { paths: dragPaths, dropDir }
   }
 
   return (
@@ -737,7 +944,7 @@ export function App(): React.JSX.Element {
           onContext: openMatchMenu
         }}
         onToggle={toggleDir}
-        onSelect={selectFile}
+        onActivate={activateRow}
         onContext={openNodeMenu}
         onCursor={trackCursor}
         onTreeKeyDown={onTreeKeyDown}
@@ -745,6 +952,11 @@ export function App(): React.JSX.Element {
         onRenameCancel={() => setRenamingPath(null)}
         onDraftSubmit={submitDraft}
         onDraftCancel={() => setDraft(null)}
+        onDragStart={startDrag}
+        onDragEnd={endDrag}
+        onDragOver={setDropDir}
+        onDrop={dropOn}
+        onDragExpand={expandForDrag}
       />
 
       <main className="main">

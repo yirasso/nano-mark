@@ -2,6 +2,7 @@ import type { FileNode, SearchMatch, SearchResponse, Worktree } from '@shared/ty
 import { Tree, type TreeCallbacks, type TreeState } from './Tree'
 import { SearchBar } from './SearchBar'
 import { SearchResults } from './SearchResults'
+import { canDropInto, samePath } from '../lib/paths'
 import { MOD } from '../lib/platform'
 import { SwapIcon } from './Icons'
 
@@ -54,6 +55,34 @@ export function Sidebar({
     onWorktreeContext(event, worktree)
   }
 
+  // The same rule for a drag: whatever no row claimed lands in the worktree
+  // itself, which is how a file or a folder gets back out to the top level.
+  const rootIsTarget = worktree !== null && samePath(state.drag.dropDir, worktree.path)
+
+  const onBackgroundDragOver = (event: React.DragEvent): void => {
+    if (!worktree || state.drag.paths.length === 0) return
+    const accepts = canDropInto(state.drag.paths, worktree.path)
+    event.preventDefault()
+    event.dataTransfer.dropEffect = accepts ? 'move' : 'none'
+    callbacks.onDragOver(accepts ? worktree.path : null)
+  }
+
+  const onBackgroundDrop = (event: React.DragEvent): void => {
+    if (!worktree || state.drag.paths.length === 0) return
+    event.preventDefault()
+    if (canDropInto(state.drag.paths, worktree.path)) callbacks.onDrop(worktree.path)
+    callbacks.onDragEnd()
+  }
+
+  // Leaving the panel drops the highlight. Crossing between rows inside it is
+  // also a dragleave, and that one has to be ignored or the target flickers.
+  const onBackgroundDragLeave = (event: React.DragEvent): void => {
+    if (state.drag.paths.length === 0) return
+    const next = event.relatedTarget
+    if (next instanceof Node && event.currentTarget.contains(next)) return
+    callbacks.onDragOver(null)
+  }
+
   // Hiding uses `visibility`, not opacity: it takes the panel out of the
   // accessibility tree and blurs anything inside it, so a rename field can never
   // keep the caret in a panel nobody can see.
@@ -62,6 +91,9 @@ export function Sidebar({
       className="sidebar"
       data-hidden={hidden ? 'true' : undefined}
       onContextMenu={onBackgroundContext}
+      onDragOver={onBackgroundDragOver}
+      onDragLeave={onBackgroundDragLeave}
+      onDrop={onBackgroundDrop}
     >
       <div className="sidebar__top drag" />
 
@@ -101,7 +133,11 @@ export function Sidebar({
             />
           </div>
 
-          <nav className="sidebar__scroll" aria-label="Files">
+          <nav
+            className="sidebar__scroll"
+            aria-label="Files"
+            data-drop={rootIsTarget ? 'true' : undefined}
+          >
             {searching ? (
               <SearchResults
                 query={search.query}

@@ -1,3 +1,5 @@
+import type { MovedEntry } from '@shared/types'
+
 const CASE_INSENSITIVE = window.nano.platform === 'win32' || window.nano.platform === 'darwin'
 
 const SEPARATORS = /[\\/]+$/
@@ -65,4 +67,55 @@ export function startsWithPath(target: string, prefix: string): boolean {
   return CASE_INSENSITIVE
     ? target.toLowerCase().startsWith(prefix.toLowerCase())
     : target.startsWith(prefix)
+}
+
+/**
+ * Whether `target` lives somewhere below `parent` — on a separator
+ * boundary, so /notes-old is never read as something inside /notes.
+ */
+export function isUnder(target: string, parent: string): boolean {
+  if (!startsWithPath(target, parent)) return false
+  const rest = target.slice(parent.length)
+  return rest.startsWith('/') || rest.startsWith('\\')
+}
+
+/**
+ * The same entry as seen after `from` moved to `to`, or null when it was
+ * neither `from` nor anything under it. A folder that moves takes every path
+ * the session is holding — the open file, the unfolded folders — along with it.
+ */
+export function rebasePath(target: string, from: string, to: string): string | null {
+  if (samePath(target, from)) return to
+  if (!isUnder(target, from)) return null
+  return to + target.slice(from.length)
+}
+
+/**
+ * The same entry after a batch of moves, or null when none of them touched it.
+ */
+export function rebaseAcross(target: string, moves: MovedEntry[]): string | null {
+  for (const move of moves) {
+    const next = rebasePath(target, move.from, move.to)
+    if (next !== null) return next
+  }
+  return null
+}
+
+/**
+ * The entries in a selection that carry the others: anything already inside a
+ * selected folder is dropped, because moving or deleting the folder takes it
+ * along and acting on it separately would be acting on a path that is gone.
+ */
+export function topLevelPaths(paths: string[]): string[] {
+  return paths.filter((target) => !paths.some((other) => isUnder(target, other)))
+}
+
+/**
+ * Whether dropping `sources` into `dir` would mean anything: nothing may land
+ * inside itself, and a batch already sitting in that folder is not a move.
+ */
+export function canDropInto(sources: string[], dir: string): boolean {
+  if (sources.length === 0) return false
+  if (sources.some((source) => samePath(source, dir) || isUnder(dir, source))) return false
+  return sources.some((source) => !samePath(dirName(source), dir))
 }

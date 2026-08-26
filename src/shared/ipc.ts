@@ -8,6 +8,7 @@ export const IPC = {
   searchRun: 'search:run',
   entryCreate: 'entry:create',
   entryRename: 'entry:rename',
+  entryMove: 'entry:move',
   entryTrash: 'entry:trash',
   entryReveal: 'entry:reveal',
   openExternal: 'shell:open-external',

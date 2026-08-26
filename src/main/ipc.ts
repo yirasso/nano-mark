@@ -1,23 +1,46 @@
 import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { IPC, type UiState } from '@shared/ipc'
-import type { FileNode, NodeKind, SearchResponse, ThemeSource, Worktree } from '@shared/types'
+import type {
+  FileNode,
+  MoveResult,
+  NodeKind,
+  SearchResponse,
+  ThemeSource,
+  TrashResult,
+  Worktree
+} from '@shared/types'
 import { buildTree } from './fs-tree'
 import { runSearch } from './search'
 import {
   createEntry,
   entryKind,
+  moveEntries,
   readDocument,
   renameEntry,
   revealEntry,
   trashEntry,
   writeDocument
 } from './files'
+import { messageOf } from './errors'
 import { assertInsideWorktree, clearWorktree, registerWorktree } from './paths'
 import { getState, patchState } from './store'
 import { stopWatching, watchWorktree } from './watcher'
 
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+
+/** How many names a confirmation spells out before it starts counting instead. */
+const NAMES_IN_WARNING = 8
+
+/** Rejects anything that is not a list of paths, before it reaches the disk. */
+function assertPathList(targets: unknown): asserts targets is string[] {
+  if (!Array.isArray(targets) || targets.length === 0) {
+    throw new Error('Nothing to act on')
+  }
+  if (targets.some((target) => typeof target !== 'string' || target.length === 0)) {
+    throw new Error('Invalid path')
+  }
+}
 
 /** What the platform calls the place deleted files go, so warnings match it. */
 export const BIN_NAME = process.platform === 'win32' ? 'Recycle Bin' : 'Trash'
@@ -120,11 +143,47 @@ export function registerIpcHandlers(): void {
     renameEntry(target, newName)
   )
 
+  ipcMain.handle(
+    IPC.entryMove,
+    (_event, targets: string[], destDir: string): Promise<MoveResult> => {
+      assertPathList(targets)
+      return moveEntries(targets, destDir)
+    }
+  )
+
   // Deleting is the one thing here that reaches outside the app and cannot be
   // undone from inside it, so it is also the one thing that asks first.
-  ipcMain.handle(IPC.entryTrash, async (event, target: string): Promise<boolean> => {
-    const kind = await entryKind(target)
-    const name = path.basename(target)
+  ipcMain.handle(IPC.entryTrash, async (event, targets: string[]): Promise<TrashResult> => {
+    assertPathList(targets)
+    const result: TrashResult = { trashed: [], failed: [] }
+
+    // A kind that cannot be read is a path that is about to fail anyway; the
+    // wording is the only thing riding on it here.
+    const kinds = await Promise.all(
+      targets.map((target) => entryKind(target).catch((): NodeKind => 'file'))
+    )
+    const names = targets.map((target) => path.basename(target))
+    const folders = kinds.filter((kind) => kind === 'dir').length
+    const unlisted = names.length - NAMES_IN_WARNING
+    const listed =
+      unlisted > 0
+        ? `${names.slice(0, NAMES_IN_WARNING).join(', ')} and ${unlisted} more`
+        : names.join(', ')
+
+    const many = targets.length > 1
+    const message = many
+      ? `Move ${targets.length} items to the ${BIN_NAME}?`
+      : folders === 1
+        ? `Move "${names[0]}" and everything inside it to the ${BIN_NAME}?`
+        : `Move "${names[0]}" to the ${BIN_NAME}?`
+    const detail = [
+      many ? listed : null,
+      many && folders > 0 ? 'Folders go with everything inside them.' : null,
+      `You can put ${many ? 'them' : 'it'} back from the ${BIN_NAME}.`
+    ]
+      .filter((line) => line !== null)
+      .join('\n\n')
+
     const win = BrowserWindow.fromWebContents(event.sender)
     const options = {
       type: 'warning' as const,
@@ -132,20 +191,25 @@ export function registerIpcHandlers(): void {
       defaultId: 0,
       cancelId: 1,
       title: `Move to ${BIN_NAME}?`,
-      message:
-        kind === 'dir'
-          ? `Move "${name}" and everything inside it to the ${BIN_NAME}?`
-          : `Move "${name}" to the ${BIN_NAME}?`,
-      detail: `You can put it back from the ${BIN_NAME}.`,
+      message,
+      detail,
       noLink: true
     }
     const { response } = win
       ? await dialog.showMessageBox(win, options)
       : await dialog.showMessageBox(options)
-    if (response !== 0) return false
+    // Cancelling is not a failure, and comes back as nothing having happened.
+    if (response !== 0) return result
 
-    await trashEntry(target)
-    return true
+    for (const target of targets) {
+      try {
+        await trashEntry(target)
+        result.trashed.push(target)
+      } catch (error) {
+        result.failed.push({ path: target, message: messageOf(error) })
+      }
+    }
+    return result
   })
 
   ipcMain.handle(IPC.entryReveal, (_event, target: string) => revealEntry(target))

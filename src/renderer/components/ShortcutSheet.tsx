@@ -42,8 +42,11 @@ const GROUPS: Group[] = [
       { keys: ['→'], label: 'Open a folder, then step into it' },
       { keys: ['←'], label: 'Close a folder, or step out to its parent' },
       { keys: ['Enter'], label: 'Open the file' },
+      { keys: ['⇧', 'Click'], label: 'Select every row between this one and the last' },
+      { keys: [MOD, 'Click'], label: 'Add one row to the selection, or take it out' },
+      { keys: ['⇧', '↑', '↓'], label: 'Select the rows the cursor walks over' },
       { keys: ['F2'], label: 'Rename the row' },
-      { keys: ['Del'], label: `Move the row to the ${BIN}` },
+      { keys: ['Del'], label: `Move the row, or everything selected, to the ${BIN}` },
       { keys: ['⇧', 'F10'], label: 'Open the row menu' }
     ]
   }

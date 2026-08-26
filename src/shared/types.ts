@@ -31,6 +31,33 @@ export interface WriteResult {
   mtimeMs: number
 }
 
+/** One entry that moved, so the interface can follow it to its new path. */
+export interface MovedEntry {
+  from: string
+  to: string
+}
+
+/** One entry that stayed where it was, and why. */
+export interface EntryFailure {
+  path: string
+  message: string
+}
+
+/**
+ * What a batch actually managed to do. A move or a deletion of several entries
+ * is several operations, and one of them failing is not a reason to lose track
+ * of the others — so both halves come back rather than an exception.
+ */
+export interface MoveResult {
+  moved: MovedEntry[]
+  failed: EntryFailure[]
+}
+
+export interface TrashResult {
+  trashed: string[]
+  failed: EntryFailure[]
+}
+
 export interface FileChangedEvent {
   path: string
   mtimeMs: number

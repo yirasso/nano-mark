@@ -4,9 +4,11 @@ import type {
   DocumentPayload,
   FileChangedEvent,
   FileNode,
+  MoveResult,
   NodeKind,
   SearchResponse,
   ThemeSource,
+  TrashResult,
   Worktree,
   WriteResult
 } from '@shared/types'
@@ -42,8 +44,12 @@ const api = {
       ipcRenderer.invoke(IPC.entryCreate, parentDir, name, kind),
     rename: (target: string, newName: string): Promise<string> =>
       ipcRenderer.invoke(IPC.entryRename, target, newName),
-    /** Asks the user first. Resolves false when they cancelled. */
-    trash: (target: string): Promise<boolean> => ipcRenderer.invoke(IPC.entryTrash, target),
+    /** Same entries, different parent. Reports what moved and what did not. */
+    move: (targets: string[], destDir: string): Promise<MoveResult> =>
+      ipcRenderer.invoke(IPC.entryMove, targets, destDir),
+    /** Asks once for the whole batch. Cancelling comes back empty. */
+    trash: (targets: string[]): Promise<TrashResult> =>
+      ipcRenderer.invoke(IPC.entryTrash, targets),
     reveal: (target: string): Promise<void> => ipcRenderer.invoke(IPC.entryReveal, target)
   },
   theme: {

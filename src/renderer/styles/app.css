@@ -167,13 +167,46 @@ button {
   background: var(--surface-hover);
   color: var(--text);
 }
-.tree-item[data-selected='true'] {
+/* Marked rows. Quieter than the open file, because several of them can be on
+   screen at once and only one of them is the document you are looking at. */
+.tree-item[data-marked='true'],
+.tree-item[data-marked='true']:hover {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+/* The open file, which wins wherever it is also marked. */
+.tree-item[data-selected='true'],
+.tree-item[data-selected='true']:hover {
   background: var(--accent-soft);
   color: var(--accent-text);
   font-weight: 500;
 }
 .tree-item[data-context='true'] {
   background: var(--surface-active);
+}
+
+/* The row in flight stays legible, but stops looking like the one you are on. */
+.tree-item[data-dragging='true'] {
+  opacity: 0.45;
+}
+
+/* The folder a drop would land in. The whole row, so it reads as a container
+   taking the thing in rather than a row you are about to click. */
+.tree-item[data-drop='true'],
+.tree-item[data-drop='true']:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent-text);
+}
+.tree-item[data-drop='true'] .tree-item__icon {
+  color: var(--accent);
+}
+
+/* The worktree root, which is the whole list rather than any row in it. */
+.sidebar__scroll[data-drop='true'] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: var(--radius-sm);
 }
 
 .tree-item__chevron {
